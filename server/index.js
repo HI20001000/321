@@ -230,6 +230,7 @@ function clonePlainSnapshotList(entries) {
 
 const EMPTY_ISSUES_JSON = JSON.stringify({ issues: [] }, null, 2);
 const EMPTY_COMBINED_REPORT_JSON = JSON.stringify({ summary: [], issues: [] }, null, 2);
+const JAVA_FILE_EXTENSION = ".java";
 const JAVA_STATIC_SUMMARY_MESSAGE = "Java 檔案僅支援 AI 審查流程。";
 
 function resolveAggregateMessage(aggregate) {
@@ -385,11 +386,215 @@ function buildJavaAiIssuesJsonSnapshot(result, issueSnapshot) {
     }
 }
 
+function buildJavaStaticSummary() {
+    return {
+        message: JAVA_STATIC_SUMMARY_MESSAGE,
+        file_extension: JAVA_FILE_EXTENSION,
+        total_issues: 0,
+        analysis_source: "static_analyzer",
+        by_rule: {}
+    };
+}
+
+function normaliseJavaSegments(segments) {
+    const cloned = clonePlainSnapshotList(segments);
+    return cloned.map((segment, index) => {
+        if (!segment || typeof segment !== "object") {
+            return segment;
+        }
+        const copy = { ...segment };
+        if (!Number.isFinite(Number(copy.index))) {
+            copy.index = index + 1;
+        }
+        if (!Number.isFinite(Number(copy.total))) {
+            copy.total = cloned.length;
+        }
+        return copy;
+    });
+}
+
+function normaliseJavaChunks(chunks) {
+    if (!Array.isArray(chunks)) {
+        return [];
+    }
+    const result = [];
+    for (const chunk of chunks) {
+        if (!chunk || typeof chunk !== "object") {
+            continue;
+        }
+        const entry = {};
+        const index = Number(chunk.index);
+        if (Number.isFinite(index)) {
+            entry.index = Math.max(1, Math.floor(index));
+        }
+        const total = Number(chunk.total);
+        if (Number.isFinite(total)) {
+            entry.total = Math.max(1, Math.floor(total));
+        }
+        const issues = Array.isArray(chunk.issues)
+            ? chunk.issues
+            : Array.isArray(chunk.parsed?.issues)
+            ? chunk.parsed.issues
+            : Array.isArray(chunk.raw?.issues)
+            ? chunk.raw.issues
+            : [];
+        if (issues.length) {
+            entry.issues = clonePlainIssueList(issues);
+        }
+        if (Object.keys(entry).length) {
+            result.push(entry);
+        }
+    }
+    return result;
+}
+
+function buildJavaDmlSummary({ segments, chunks, aggregate, generatedAt }) {
+    const totalSegments = segments.length;
+    const analysedSegments = chunks.length || totalSegments;
+    const status = aggregate?.status
+        ? String(aggregate.status).trim() || "completed"
+        : totalSegments || analysedSegments
+        ? "completed"
+        : "idle";
+    const summary = {
+        analysis_source: "dml_prompt",
+        total_segments: totalSegments,
+        analyzed_segments: analysedSegments,
+        generated_at: generatedAt,
+        status
+    };
+    const errorMessage = typeof aggregate?.error_message === "string" ? aggregate.error_message.trim() : "";
+    if (errorMessage) {
+        summary.error_message = errorMessage;
+    }
+    const aggregateMessage = resolveAggregateMessage(aggregate);
+    if (aggregateMessage) {
+        summary.message = aggregateMessage;
+    }
+    return summary;
+}
+
+function buildJavaDifySummary(issueCount, aggregate) {
+    const summary = {
+        analysis_source: "dify_workflow",
+        total_issues: issueCount
+    };
+    const aggregateMessage = resolveAggregateMessage(aggregate);
+    if (aggregateMessage) {
+        summary.message = aggregateMessage;
+    }
+    return summary;
+}
+
+function buildJavaCompositeSummary({ issueCount, aggregate, staticSummary, dmlSummary, difySummary }) {
+    const summary = {
+        total_issues: issueCount,
+        by_rule: isPlainObject(aggregate?.by_rule) ? clonePlainValue(aggregate.by_rule) : {},
+        analysis_source: "composite",
+        file_extension: JAVA_FILE_EXTENSION,
+        sources: {
+            static_analyzer: clonePlainValue(staticSummary),
+            dml_prompt: clonePlainValue(dmlSummary),
+            dify_workflow: clonePlainValue(difySummary)
+        }
+    };
+    if (isPlainObject(aggregate?.by_severity)) {
+        summary.by_severity = clonePlainValue(aggregate.by_severity);
+    }
+    const aggregateMessage = resolveAggregateMessage(aggregate);
+    if (aggregateMessage) {
+        summary.message = aggregateMessage;
+    }
+    return summary;
+}
+
+function buildJavaReportPayload({ result, issueSnapshot, summaryRecords, generatedAt }) {
+    const aggregate = isPlainObject(result?.aggregated) ? clonePlainValue(result.aggregated) : null;
+    const staticSummary = buildJavaStaticSummary();
+    const segments = normaliseJavaSegments(result?.segments || []);
+    const chunks = normaliseJavaChunks(result?.chunks || []);
+    const dmlSummary = buildJavaDmlSummary({ segments, chunks, aggregate, generatedAt });
+    const issueCount = issueSnapshot.length;
+    const difySummary = buildJavaDifySummary(issueCount, aggregate);
+    const compositeSummary = buildJavaCompositeSummary({
+        issueCount,
+        aggregate,
+        staticSummary,
+        dmlSummary,
+        difySummary
+    });
+    const staticReportEntry = {
+        summary: clonePlainValue(staticSummary),
+        issues: [],
+        analysis_source: "static_analyzer",
+        metadata: { analysis_source: "static_analyzer" },
+        original: clonePlainValue(staticSummary),
+        type: "static_analyzer"
+    };
+    const dmlReportEntry = {
+        type: "dml_prompt",
+        summary: clonePlainValue(dmlSummary),
+        segments,
+        report: typeof result?.textReport === "string" && result.textReport.trim()
+            ? result.textReport
+            : typeof result?.report === "string"
+            ? result.report
+            : "",
+        chunks,
+        issues: clonePlainIssueList(issueSnapshot),
+        conversationId: typeof result?.conversationId === "string" ? result.conversationId : "",
+        generatedAt,
+        metadata: { analysis_source: "dml_prompt" }
+    };
+    const difyReportEntry = {
+        type: "dify_workflow",
+        summary: clonePlainValue(difySummary),
+        issues: clonePlainIssueList(issueSnapshot),
+        metadata: { analysis_source: "dify_workflow" },
+        raw: aggregate ? clonePlainValue(aggregate) : { issues: [] },
+        report:
+            typeof result?.report === "string" && result.report.trim()
+                ? result.report
+                : JSON.stringify({ issues: issueSnapshot }, null, 2)
+    };
+    const combinedEntry = {
+        type: "combined",
+        summary: clonePlainValue(compositeSummary),
+        issues: clonePlainIssueList(issueSnapshot)
+    };
+    const aggregatedReports = {
+        summary: summaryRecords.map((record) => clonePlainValue(record)),
+        issues: clonePlainIssueList(issueSnapshot)
+    };
+    const payload = {
+        summary: clonePlainValue(compositeSummary),
+        issues: clonePlainIssueList(issueSnapshot),
+        reports: {
+            static_analyzer: staticReportEntry,
+            dml_prompt: dmlReportEntry,
+            combined: combinedEntry,
+            dify_workflow: difyReportEntry
+        },
+        aggregated_reports: aggregatedReports,
+        metadata: {
+            analysis_source: "composite",
+            components: ["static_analyzer", "dml_prompt", "dify_workflow"]
+        }
+    };
+    try {
+        return JSON.stringify(payload, null, 2);
+    } catch (error) {
+        console.warn("[reports] Failed to serialise Java report payload", error);
+        return result?.report || JSON.stringify({ issues: issueSnapshot }, null, 2);
+    }
+}
+
 function buildJavaReportSnapshots(result, generatedAt) {
     if (!result || typeof result !== "object") {
         return {
             combinedReportJson: EMPTY_COMBINED_REPORT_JSON,
-            aiReportJson: EMPTY_ISSUES_JSON
+            aiReportJson: EMPTY_ISSUES_JSON,
+            reportPayload: ""
         };
     }
     const issueSnapshot = clonePlainIssueList(result.issues);
@@ -400,9 +605,16 @@ function buildJavaReportSnapshots(result, generatedAt) {
     });
     const combinedReportJson = serialiseCombinedReportSnapshot(summaryRecords, issueSnapshot);
     const aiReportJson = buildJavaAiIssuesJsonSnapshot(result, issueSnapshot);
+    const reportPayload = buildJavaReportPayload({
+        result,
+        issueSnapshot,
+        summaryRecords,
+        generatedAt
+    });
     return {
         combinedReportJson,
-        aiReportJson
+        aiReportJson,
+        reportPayload
     };
 }
 
@@ -1138,7 +1350,7 @@ app.post("/api/reports/dify", async (req, res, next) => {
         await upsertReport({
             projectId,
             path,
-            report: result?.report,
+            report: javaSnapshots?.reportPayload || result?.report,
             chunks: result?.chunks,
             segments: result?.segments,
             conversationId: result?.conversationId,
@@ -1153,6 +1365,7 @@ app.post("/api/reports/dify", async (req, res, next) => {
             projectId,
             path,
             ...result,
+            report: javaSnapshots?.reportPayload || result?.report,
             combinedReportJson: javaSnapshots?.combinedReportJson,
             aiReportJson: javaSnapshots?.aiReportJson,
             savedAt: savedAtIso
