@@ -137,6 +137,15 @@ const showActions = computed(() => Boolean(props.showFileActions));
 const shouldShowGenerateButton = computed(
     () => showActions.value && !isReady.value && Boolean(fileState.value)
 );
+const canTriggerRegenerate = computed(() => showActions.value && isReady.value);
+const statusTooltip = computed(() => {
+    const baseTooltip = issueTooltip.value || "";
+    const regenHint = canTriggerRegenerate.value ? "點擊重新生成報告" : "";
+    if (baseTooltip && regenHint) {
+        return `${baseTooltip}\n${regenHint}`;
+    }
+    return baseTooltip || regenHint || "";
+});
 
 function handleToggle() {
     if (!isDirectory.value) return;
@@ -182,10 +191,21 @@ function handleGenerate(event) {
             <span class="reportTreeIcon">{{ icon }}</span>
             <span class="reportTreeLabel" :title="node.path">{{ node.name }}</span>
             <template v-if="isFile && fileState">
+                <button
+                    v-if="canTriggerRegenerate"
+                    type="button"
+                    class="statusBadge statusBadgeButton statusBadge--actionable"
+                    :class="statusClass"
+                    :title="statusTooltip || null"
+                    @click.stop="handleGenerate"
+                >
+                    {{ statusLabel }}
+                </button>
                 <span
+                    v-else
                     class="statusBadge"
                     :class="statusClass"
-                    :title="issueTooltip || null"
+                    :title="statusTooltip || null"
                 >
                     {{ statusLabel }}
                 </span>
@@ -297,6 +317,26 @@ function handleGenerate(event) {
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--tree-badge-text);
+}
+
+.statusBadgeButton {
+    border: none;
+    font: inherit;
+}
+
+.statusBadgeButton:focus-visible {
+    outline: 2px solid var(--panel-accent);
+    outline-offset: 2px;
+}
+
+.statusBadge--actionable {
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.statusBadge--actionable:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
 
 .statusBadge--idle {

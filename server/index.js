@@ -200,8 +200,211 @@ function clonePlainValue(value) {
     return value;
 }
 
+function clonePlainIssueList(issues) {
+    if (!Array.isArray(issues)) {
+        return [];
+    }
+    const result = [];
+    for (const issue of issues) {
+        if (!isPlainObject(issue)) {
+            continue;
+        }
+        result.push(clonePlainValue(issue));
+    }
+    return result;
+}
+
+function clonePlainSnapshotList(entries) {
+    if (!Array.isArray(entries)) {
+        return [];
+    }
+    const result = [];
+    for (const entry of entries) {
+        if (!isPlainObject(entry)) {
+            continue;
+        }
+        result.push(clonePlainValue(entry));
+    }
+    return result;
+}
+
 const EMPTY_ISSUES_JSON = JSON.stringify({ issues: [] }, null, 2);
 const EMPTY_COMBINED_REPORT_JSON = JSON.stringify({ summary: [], issues: [] }, null, 2);
+const JAVA_STATIC_SUMMARY_MESSAGE = "Java 檔案僅支援 AI 審查流程。";
+
+function resolveAggregateMessage(aggregate) {
+    if (!aggregate || typeof aggregate !== "object") {
+        return "";
+    }
+    const directMessage = typeof aggregate.message === "string" ? aggregate.message.trim() : "";
+    if (directMessage) {
+        return directMessage;
+    }
+    if (Array.isArray(aggregate.messages)) {
+        const combined = aggregate.messages
+            .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+            .filter(Boolean)
+            .join(" ");
+        if (combined) {
+            return combined;
+        }
+    }
+    return "";
+}
+
+function buildSummaryRecord({ source, label, totalIssues, status, generatedAt, message }) {
+    const normalisedSource = typeof source === "string" && source.trim() ? source.trim() : "";
+    const normalisedLabel = typeof label === "string" && label.trim() ? label.trim() : normalisedSource || "";
+    const numericTotal = Number(totalIssues);
+    const totalValue = Number.isFinite(numericTotal) && numericTotal >= 0 ? Math.floor(numericTotal) : 0;
+    const record = {
+        source: normalisedSource,
+        label: normalisedLabel,
+        total_issues: totalValue
+    };
+    const resolvedStatus = typeof status === "string" && status.trim() ? status.trim() : "";
+    if (resolvedStatus) {
+        record.status = resolvedStatus;
+    }
+    const resolvedGeneratedAt = toIsoString(generatedAt);
+    if (resolvedGeneratedAt) {
+        record.generated_at = resolvedGeneratedAt;
+    }
+    const resolvedMessage = typeof message === "string" && message.trim() ? message.trim() : "";
+    if (resolvedMessage) {
+        record.message = resolvedMessage;
+    }
+    return record;
+}
+
+function computeIssueCountFromAggregate(aggregate, issues) {
+    const aggregateTotal = Number(aggregate?.total_issues ?? aggregate?.totalIssues);
+    if (Number.isFinite(aggregateTotal) && aggregateTotal >= 0) {
+        return Math.floor(aggregateTotal);
+    }
+    return Array.isArray(issues) ? issues.length : 0;
+}
+
+function serialiseCombinedReportSnapshot(summaryRecords, issues) {
+    const summary = [];
+    if (Array.isArray(summaryRecords)) {
+        for (const record of summaryRecords) {
+            if (!record || typeof record !== "object" || Array.isArray(record)) {
+                continue;
+            }
+            const entry = {};
+            for (const [key, value] of Object.entries(record)) {
+                if (value === undefined || value === null) {
+                    continue;
+                }
+                if (typeof value === "object") {
+                    continue;
+                }
+                entry[key] = value;
+            }
+            if (Object.keys(entry).length) {
+                summary.push(entry);
+            }
+        }
+    }
+    const safeIssues = clonePlainIssueList(issues);
+    try {
+        return JSON.stringify({ summary, issues: safeIssues }, null, 2);
+    } catch (error) {
+        console.warn("[reports] Failed to serialise combined report snapshot", error);
+        return EMPTY_COMBINED_REPORT_JSON;
+    }
+}
+
+function buildJavaCombinedSummaryRecords({ aggregate, issues, generatedAt }) {
+    const issueCount = computeIssueCountFromAggregate(aggregate, issues);
+    const generatedAtIso = toIsoString(generatedAt) || new Date().toISOString();
+    const aggregateStatus = typeof aggregate?.status === "string" && aggregate.status.trim()
+        ? aggregate.status.trim()
+        : "completed";
+    const aggregateMessage = resolveAggregateMessage(aggregate);
+    const records = [];
+    records.push(
+        buildSummaryRecord({
+            source: "static_analyzer",
+            label: "靜態分析器",
+            totalIssues: 0,
+            status: "skipped",
+            generatedAt: generatedAtIso,
+            message: JAVA_STATIC_SUMMARY_MESSAGE
+        })
+    );
+    records.push(
+        buildSummaryRecord({
+            source: "dml_prompt",
+            label: "AI審查",
+            totalIssues: issueCount,
+            status: aggregateStatus,
+            generatedAt: generatedAtIso,
+            message: aggregateMessage
+        })
+    );
+    records.push(
+        buildSummaryRecord({
+            source: "combined",
+            label: "聚合報告",
+            totalIssues: issueCount,
+            status: aggregateStatus,
+            generatedAt: generatedAtIso,
+            message: aggregateMessage
+        })
+    );
+    return records;
+}
+
+function buildJavaAiIssuesJsonSnapshot(result, issueSnapshot) {
+    const issues = Array.isArray(issueSnapshot) && issueSnapshot.length
+        ? issueSnapshot.map((issue) => clonePlainValue(issue))
+        : clonePlainIssueList(result?.issues);
+    const payload = { issues };
+    const segments = clonePlainSnapshotList(result?.segments);
+    if (segments.length) {
+        payload.segments = segments;
+    }
+    const chunks = clonePlainSnapshotList(result?.chunks);
+    if (chunks.length) {
+        payload.chunks = chunks;
+    }
+    const conversationId = typeof result?.conversationId === "string" ? result.conversationId.trim() : "";
+    if (conversationId) {
+        payload.conversationId = conversationId;
+    }
+    if (result?.selection && isPlainObject(result.selection)) {
+        payload.metadata = { selection: clonePlainValue(result.selection) };
+    }
+    try {
+        return JSON.stringify(payload, null, 2);
+    } catch (error) {
+        console.warn("[reports] Failed to serialise AI issues snapshot", error);
+        return EMPTY_ISSUES_JSON;
+    }
+}
+
+function buildJavaReportSnapshots(result, generatedAt) {
+    if (!result || typeof result !== "object") {
+        return {
+            combinedReportJson: EMPTY_COMBINED_REPORT_JSON,
+            aiReportJson: EMPTY_ISSUES_JSON
+        };
+    }
+    const issueSnapshot = clonePlainIssueList(result.issues);
+    const summaryRecords = buildJavaCombinedSummaryRecords({
+        aggregate: result.aggregated,
+        issues: issueSnapshot,
+        generatedAt
+    });
+    const combinedReportJson = serialiseCombinedReportSnapshot(summaryRecords, issueSnapshot);
+    const aiReportJson = buildJavaAiIssuesJsonSnapshot(result, issueSnapshot);
+    return {
+        combinedReportJson,
+        aiReportJson
+    };
+}
 
 function sanitiseCombinedReportJson(value) {
     if (typeof value !== "string") {
@@ -931,6 +1134,7 @@ app.post("/api/reports/dify", async (req, res, next) => {
             files
         });
         const resolvedGeneratedAt = result?.generatedAt || new Date().toISOString();
+        const javaSnapshots = javaFile ? buildJavaReportSnapshots(result, resolvedGeneratedAt) : null;
         await upsertReport({
             projectId,
             path,
@@ -940,13 +1144,17 @@ app.post("/api/reports/dify", async (req, res, next) => {
             conversationId: result?.conversationId,
             userId: resolvedUserId,
             generatedAt: resolvedGeneratedAt,
-            staticReportJson: javaFile ? EMPTY_ISSUES_JSON : undefined
+            combinedReportJson: javaSnapshots?.combinedReportJson,
+            staticReportJson: javaFile ? EMPTY_ISSUES_JSON : undefined,
+            aiReportJson: javaSnapshots?.aiReportJson
         });
         const savedAtIso = new Date().toISOString();
         res.json({
             projectId,
             path,
             ...result,
+            combinedReportJson: javaSnapshots?.combinedReportJson,
+            aiReportJson: javaSnapshots?.aiReportJson,
             savedAt: savedAtIso
         });
     } catch (error) {
