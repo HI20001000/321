@@ -134,6 +134,9 @@ const allowSelect = computed(() => {
     return isViewable.value;
 });
 const showActions = computed(() => Boolean(props.showFileActions));
+const shouldShowGenerateButton = computed(
+    () => showActions.value && !isReady.value && Boolean(fileState.value)
+);
 
 function handleToggle() {
     if (!isDirectory.value) return;
@@ -155,12 +158,6 @@ function handleGenerate(event) {
     props.onGenerate(props.project, props.node);
 }
 
-function handleSelect(event) {
-    event?.stopPropagation?.();
-    if (allowSelect.value) {
-        props.onSelect(props.projectId, props.node.path);
-    }
-}
 </script>
 
 <template>
@@ -193,23 +190,14 @@ function handleSelect(event) {
                     {{ statusLabel }}
                 </span>
                 <button
-                    v-if="showActions"
+                    v-if="shouldShowGenerateButton"
                     type="button"
                     class="reportActionBtn"
                     :disabled="isProcessing"
                     @click="handleGenerate"
                 >
                     <span v-if="isProcessing">處理中...</span>
-                    <span v-else-if="isReady">重新生成</span>
                     <span v-else>生成報告</span>
-                </button>
-                <button
-                    v-if="showActions && allowSelect"
-                    type="button"
-                    class="reportViewBtn"
-                    @click="handleSelect"
-                >
-                    {{ isError ? "檢視錯誤" : "查看" }}
                 </button>
             </template>
         </div>
@@ -352,23 +340,6 @@ function handleSelect(event) {
     background: rgba(148, 163, 184, 0.12);
     border-color: rgba(148, 163, 184, 0.35);
     color: var(--panel-muted);
-}
-
-.reportViewBtn {
-    margin-left: auto;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--panel-border);
-    background: rgba(148, 163, 184, 0.12);
-    color: var(--tree-text);
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.reportViewBtn:hover {
-    background: rgba(148, 163, 184, 0.2);
-    border-color: var(--panel-border-strong);
 }
 
 .reportErrorMessage {

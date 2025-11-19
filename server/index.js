@@ -4,6 +4,7 @@ import pool from "./lib/db.js";
 import { ensureSchema } from "./lib/ensureSchema.js";
 import { getDifyConfigSummary, partitionContent, requestDifyReport } from "./lib/difyClient.js";
 import { analyseSqlToReport, buildSqlReportPayload, isSqlPath } from "./lib/sqlAnalyzer.js";
+import { buildJavaSegments, isJavaPath } from "./lib/javaProcessor.js";
 
 const REPORT_DEBUG_LOGS = process.env.REPORT_DEBUG_LOGS === "true";
 
@@ -910,11 +911,14 @@ app.post("/api/reports/dify", async (req, res, next) => {
             return;
         }
 
-        const segments = partitionContent(content);
+        const javaFile = isJavaPath(path);
+        const javaSegments = javaFile ? buildJavaSegments(content) : [];
+        const segments = javaSegments.length ? javaSegments : partitionContent(content);
         const summary = getDifyConfigSummary();
         if (REPORT_DEBUG_LOGS) {
             console.log(
-                `[dify] Generating report project=${projectId} path=${path} segments=${segments.length} maxSegmentChars=${summary.maxSegmentChars}`
+                `[dify] Generating report project=${projectId} path=${path} segments=${segments.length} ` +
+                    `maxSegmentChars=${summary.maxSegmentChars}${javaFile ? " (java)" : ""}`
             );
         }
 
@@ -935,7 +939,8 @@ app.post("/api/reports/dify", async (req, res, next) => {
             segments: result?.segments,
             conversationId: result?.conversationId,
             userId: resolvedUserId,
-            generatedAt: resolvedGeneratedAt
+            generatedAt: resolvedGeneratedAt,
+            staticReportJson: javaFile ? EMPTY_ISSUES_JSON : undefined
         });
         const savedAtIso = new Date().toISOString();
         res.json({
