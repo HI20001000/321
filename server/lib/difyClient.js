@@ -622,6 +622,11 @@ function buildPrompt({ segmentText, projectName, filePath, chunkIndex, chunkTota
         `檔案：${filePath}`,
         describeSegmentLocation(location),
         describeSelection(selection),
+        location?.kind === "java_method" && location?.label ? `方法：${location.label}` : "",
+        location?.kind === "java_method" && location?.className ? `類別：${location.className}` : "",
+        location?.kind === "java_method" && location?.methodSignature
+            ? `方法簽名：${location.methodSignature}`
+            : "",
         chunkTotal > 1 ? `分段：${chunkIndex}/${chunkTotal}` : "",
         "",
         "以下是本段程式碼：",

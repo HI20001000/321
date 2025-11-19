@@ -38,10 +38,7 @@ import {
     normaliseAiReviewPayload,
     parseReportJson
 } from "../scripts/reports/shared.js";
-import processJavaFile from "../scripts/java/index.js";
-import { processJavaBlocksWithDify } from "../scripts/java/difyProcessor.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
-import JavaReportCheck from "../components/workspace/JavaReportCheck.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
@@ -930,16 +927,16 @@ const dmlChunkDetails = computed(() => {
                 issue.text,
                 issue.raw
             );
-            const lineCandidate = Number(
-                issue.line ?? issue.lineNumber ?? issue.line_no ?? issue.start_line ?? issue.startLine
-            );
-            const line = Number.isFinite(lineCandidate) && lineCandidate > 0 ? Math.floor(lineCandidate) : null;
+            const lineMeta = ensureIssueLineMeta(issue);
+            const line = lineMeta.label || null;
 
             return {
                 message,
                 severity,
                 rule,
                 line,
+                lineStart: lineMeta.start,
+                lineEnd: lineMeta.end,
                 context,
                 original: issue
             };
@@ -1014,6 +1011,156 @@ const activeReportSourceLines = computed(() => {
     }));
 });
 
+const MAX_ISSUE_LINE_SPAN = 500;
+
+const ISSUE_LINE_VALUE_KEYS = [
+    "line",
+    "line_text",
+    "lineText",
+    "line_number",
+    "lineNumber",
+    "line_no",
+    "lineNo",
+    "line_range",
+    "lineRange",
+    "line_label",
+    "lineLabel",
+    "range",
+    "lineDisplay",
+    "line_range_text",
+    "lineRangeText"
+];
+
+function normaliseLineEndpoint(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return null;
+    }
+    return Math.floor(numeric);
+}
+
+function parseLineRangeValue(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (typeof value === "number") {
+        const endpoint = normaliseLineEndpoint(value);
+        return endpoint ? { start: endpoint, end: endpoint } : null;
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return null;
+        }
+        const rangeMatch = trimmed.match(/^(\d+)\s*[-~–]\s*(\d+)$/);
+        if (rangeMatch) {
+            const start = normaliseLineEndpoint(rangeMatch[1]);
+            const end = normaliseLineEndpoint(rangeMatch[2]);
+            if (start && end) {
+                return { start: Math.min(start, end), end: Math.max(start, end) };
+            }
+        }
+        const numeric = normaliseLineEndpoint(trimmed);
+        return numeric ? { start: numeric, end: numeric } : null;
+    }
+    if (Array.isArray(value)) {
+        const endpoints = value
+            .map((entry) => normaliseLineEndpoint(entry))
+            .filter((entry) => entry !== null);
+        if (!endpoints.length) {
+            return null;
+        }
+        return { start: Math.min(...endpoints), end: Math.max(...endpoints) };
+    }
+    if (value && typeof value === "object") {
+        const start = normaliseLineEndpoint(value.start ?? value.begin ?? value.from);
+        const end = normaliseLineEndpoint(value.end ?? value.finish ?? value.to);
+        if (start !== null || end !== null) {
+            const safeStart = start ?? end;
+            const safeEnd = end ?? start ?? safeStart;
+            return safeStart ? { start: safeStart, end: safeEnd } : null;
+        }
+        if (typeof value.label === "string") {
+            return parseLineRangeValue(value.label);
+        }
+    }
+    return null;
+}
+
+function extractLineRangeFromIssue(issue) {
+    if (!issue || typeof issue !== "object") {
+        return null;
+    }
+    for (const key of ISSUE_LINE_VALUE_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(issue, key)) {
+            const parsed = parseLineRangeValue(issue[key]);
+            if (parsed) {
+                return parsed;
+            }
+        }
+    }
+    const metaCandidates = [issue.metadata, issue.meta];
+    for (const meta of metaCandidates) {
+        if (meta && typeof meta === "object") {
+            const parsed = parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range);
+            if (parsed) {
+                return parsed;
+            }
+            const start = normaliseLineEndpoint(meta.start_line ?? meta.startLine);
+            const end = normaliseLineEndpoint(meta.end_line ?? meta.endLine);
+            if (start !== null || end !== null) {
+                const safeStart = start ?? end;
+                const safeEnd = end ?? start ?? safeStart;
+                if (safeStart) {
+                    return { start: safeStart, end: safeEnd };
+                }
+            }
+        }
+    }
+    const start = normaliseLineEndpoint(issue.start_line ?? issue.startLine);
+    const end = normaliseLineEndpoint(issue.end_line ?? issue.endLine);
+    if (start !== null || end !== null) {
+        const safeStart = start ?? end;
+        const safeEnd = end ?? start ?? safeStart;
+        if (safeStart) {
+            return { start: safeStart, end: safeEnd };
+        }
+    }
+    return null;
+}
+
+function formatLineRangeLabel(range) {
+    if (!range) {
+        return "";
+    }
+    if (range.start === range.end) {
+        return String(range.start);
+    }
+    return `${range.start}-${range.end}`;
+}
+
+function ensureIssueLineMeta(issue) {
+    if (!issue || typeof issue !== "object") {
+        return { start: null, end: null, label: "" };
+    }
+    if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
+        return issue.__lineMeta;
+    }
+    const range = extractLineRangeFromIssue(issue);
+    const meta = {
+        start: range?.start ?? null,
+        end: range?.end ?? null,
+        label: formatLineRangeLabel(range)
+    };
+    issue.__lineMeta = meta;
+    return meta;
+}
+
+function describeIssueLineRange(issue) {
+    const meta = ensureIssueLineMeta(issue);
+    return meta.label;
+}
+
 const reportIssueLines = computed(() => {
     const details = activeReportDetails.value;
     const sourceLines = activeReportSourceLines.value;
@@ -1026,16 +1173,26 @@ const reportIssueLines = computed(() => {
     const orphanIssues = [];
 
     for (const issue of issues) {
-        const lineNumber = Number(issue?.line);
-        if (Number.isFinite(lineNumber) && lineNumber > 0) {
-            const key = Math.max(1, Math.floor(lineNumber));
-            const bucket = issuesByLine.get(key) || [];
+        const lineMeta = ensureIssueLineMeta(issue);
+        const hasStart = Number.isFinite(lineMeta.start) && lineMeta.start > 0;
+        if (!hasStart) {
+            orphanIssues.push(issue);
+            continue;
+        }
+        const startLine = Math.max(1, Math.floor(lineMeta.start));
+        const hasEnd = Number.isFinite(lineMeta.end) && lineMeta.end > 0;
+        const endCandidate = hasEnd ? Math.floor(lineMeta.end) : startLine;
+        const effectiveEnd = Math.max(startLine, endCandidate);
+        const cappedEnd = Math.min(effectiveEnd, startLine + MAX_ISSUE_LINE_SPAN - 1);
+        for (let lineNumber = startLine; lineNumber <= cappedEnd; lineNumber += 1) {
+            const bucket = issuesByLine.get(lineNumber) || [];
             bucket.push(issue);
-            issuesByLine.set(key, bucket);
-            if (key > maxLine) {
-                maxLine = key;
-            }
-        } else {
+            issuesByLine.set(lineNumber, bucket);
+        }
+        if (effectiveEnd > maxLine) {
+            maxLine = effectiveEnd;
+        }
+        if (effectiveEnd > cappedEnd && !orphanIssues.includes(issue)) {
             orphanIssues.push(issue);
         }
     }
@@ -1091,16 +1248,6 @@ const shouldShowDmlChunkDetails = computed(() => {
     }
     return structuredReportViewMode.value === "dml";
 });
-
-const activeJavaReportBlocks = computed(() => {
-    const blocks = activeReport.value?.state?.javaBlocks;
-    return Array.isArray(blocks) ? blocks : [];
-});
-
-const hasActiveJavaReport = computed(() => activeJavaReportBlocks.value.length > 0);
-const activeJavaCombinedReport = computed(
-    () => activeReport.value?.state?.javaCombinedReport || ""
-);
 
 const canShowStructuredSummary = computed(() => Boolean(activeReportDetails.value));
 
@@ -1686,6 +1833,7 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+
 function buildIssueMetaLine(type, keySource, issues, isOrphan = false) {
     const label = type === "fix" ? "Fix" : "Issues";
     const keySuffix = typeof keySource === "number" ? keySource : String(keySource || type);
@@ -1732,8 +1880,13 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                     )}</span>`
                 );
             }
-            if (isOrphan && Number.isFinite(issue?.line)) {
-                badges.push(`<span class="reportIssueInlineLine">Line ${escapeHtml(String(issue.line))}</span>`);
+            if (isOrphan) {
+                const lineLabel = describeIssueLineRange(issue);
+                if (lineLabel) {
+                    badges.push(
+                        `<span class="reportIssueInlineLine">Line ${escapeHtml(lineLabel)}</span>`
+                    );
+                }
             }
 
             const badgeBlock = badges.length
@@ -2343,9 +2496,7 @@ function createDefaultReportState() {
         sourceError: "",
         combinedReportJson: "",
         staticReportJson: "",
-        aiReportJson: "",
-        javaBlocks: [],
-        javaCombinedReport: ""
+        aiReportJson: ""
     };
 }
 
@@ -2947,57 +3098,21 @@ async function generateReportForFile(project, node, options = {}) {
     state.combinedReportJson = "";
     state.staticReportJson = "";
     state.aiReportJson = "";
-    state.javaBlocks = [];
-    state.javaCombinedReport = "";
-
-    let javaProcessingResult = null;
 
     try {
         const { text } = await loadTextContentForNode(project, node);
 
-        let content = text;
-        const isJavaFile = typeof node?.name === "string" && node.name.toLowerCase().endsWith(".java");
-        let javaClassMethods = [];
-        if (isJavaFile) {
-            const { cleanedSource, classMethods } = processJavaFile({
-                source: text,
-                path: node?.path || node?.name
-            });
-            if (cleanedSource) {
-                content = cleanedSource;
-            }
-            if (Array.isArray(classMethods)) {
-                javaClassMethods = classMethods;
-            }
-            if (javaClassMethods.length) {
-                javaProcessingResult = await processJavaBlocksWithDify({
-                    projectId,
-                    projectName: project.name,
-                    path: node?.path || node?.name || "",
-                    classMethods: javaClassMethods
-                });
-            }
-        }
-
-        state.sourceText = content;
+        state.sourceText = text;
         state.sourceLoaded = true;
         state.sourceLoading = false;
         state.sourceError = "";
 
-        const useJavaPayload = Boolean(javaProcessingResult?.blocks?.length);
-        const payload = useJavaPayload
-            ? {
-                  report: javaProcessingResult.combinedReport || "",
-                  generatedAt: new Date().toISOString(),
-                  javaBlocks: javaProcessingResult.blocks,
-                  javaCombinedReport: javaProcessingResult.combinedReport || ""
-              }
-            : await generateReportViaDify({
-                  projectId,
-                  projectName: project.name,
-                  path: node.path,
-                  content
-              });
+        const payload = await generateReportViaDify({
+            projectId,
+            projectName: project.name,
+            path: node.path,
+            content: text
+        });
 
         const completedAt = payload?.generatedAt ? new Date(payload.generatedAt) : new Date();
         state.status = "ready";
@@ -3027,14 +3142,6 @@ async function generateReportForFile(project, node, options = {}) {
         state.combinedReportJson = typeof payload?.combinedReportJson === "string" ? payload.combinedReportJson : "";
         state.staticReportJson = typeof payload?.staticReportJson === "string" ? payload.staticReportJson : "";
         state.aiReportJson = typeof payload?.aiReportJson === "string" ? payload.aiReportJson : "";
-        state.javaBlocks = Array.isArray(javaProcessingResult?.blocks)
-            ? javaProcessingResult.blocks
-            : Array.isArray(payload?.javaBlocks)
-            ? payload.javaBlocks
-            : [];
-        state.javaCombinedReport =
-            (typeof javaProcessingResult?.combinedReport === "string" && javaProcessingResult.combinedReport) ||
-            (typeof payload?.javaCombinedReport === "string" ? payload.javaCombinedReport : "");
 
         if (autoSelect) {
             activeReportTarget.value = {
@@ -3067,8 +3174,6 @@ async function generateReportForFile(project, node, options = {}) {
         state.combinedReportJson = "";
         state.staticReportJson = "";
         state.aiReportJson = "";
-        state.javaBlocks = [];
-        state.javaCombinedReport = "";
         const now = new Date();
         state.updatedAt = now;
         state.updatedAtDisplay = now.toLocaleString();
@@ -3899,15 +4004,6 @@ onBeforeUnmount(() => {
                                             </details>
                                         </section>
                                         <section
-                                            v-if="hasActiveJavaReport"
-                                            class="reportJavaSection"
-                                        >
-                                            <JavaReportCheck
-                                                :blocks="activeJavaReportBlocks"
-                                                :combined-report="activeJavaCombinedReport"
-                                            />
-                                        </section>
-                                        <section
                                             v-if="structuredReportJsonPreview"
                                             class="reportJsonPreviewSection"
                                         >
@@ -4058,8 +4154,11 @@ onBeforeUnmount(() => {
                                                             <p v-if="issue.severity" class="reportChunkIssueMeta">
                                                                 嚴重度：{{ issue.severity }}
                                                             </p>
-                                                            <p v-if="issue.line" class="reportChunkIssueMeta">
-                                                                行數：第 {{ issue.line }} 行
+                                                            <p
+                                                                v-if="describeIssueLineRange(issue)"
+                                                                class="reportChunkIssueMeta"
+                                                            >
+                                                                行數：第 {{ describeIssueLineRange(issue) }} 行
                                                             </p>
                                                             <p v-if="issue.context" class="reportChunkIssueContext">
                                                                 {{ issue.context }}
@@ -4868,11 +4967,6 @@ body,
 
 .reportStaticItemValue {
     color: #cbd5f5;
-}
-
-
-.reportJavaSection {
-    margin-top: 16px;
 }
 
 

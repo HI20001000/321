@@ -134,6 +134,18 @@ const allowSelect = computed(() => {
     return isViewable.value;
 });
 const showActions = computed(() => Boolean(props.showFileActions));
+const shouldShowGenerateButton = computed(
+    () => showActions.value && !isReady.value && Boolean(fileState.value)
+);
+const canTriggerRegenerate = computed(() => showActions.value && isReady.value);
+const statusTooltip = computed(() => {
+    const baseTooltip = issueTooltip.value || "";
+    const regenHint = canTriggerRegenerate.value ? "點擊重新生成報告" : "";
+    if (baseTooltip && regenHint) {
+        return `${baseTooltip}\n${regenHint}`;
+    }
+    return baseTooltip || regenHint || "";
+});
 
 function handleToggle() {
     if (!isDirectory.value) return;
@@ -155,12 +167,6 @@ function handleGenerate(event) {
     props.onGenerate(props.project, props.node);
 }
 
-function handleSelect(event) {
-    event?.stopPropagation?.();
-    if (allowSelect.value) {
-        props.onSelect(props.projectId, props.node.path);
-    }
-}
 </script>
 
 <template>
@@ -185,31 +191,33 @@ function handleSelect(event) {
             <span class="reportTreeIcon">{{ icon }}</span>
             <span class="reportTreeLabel" :title="node.path">{{ node.name }}</span>
             <template v-if="isFile && fileState">
+                <button
+                    v-if="canTriggerRegenerate"
+                    type="button"
+                    class="statusBadge statusBadgeButton statusBadge--actionable"
+                    :class="statusClass"
+                    :title="statusTooltip || null"
+                    @click.stop="handleGenerate"
+                >
+                    {{ statusLabel }}
+                </button>
                 <span
+                    v-else
                     class="statusBadge"
                     :class="statusClass"
-                    :title="issueTooltip || null"
+                    :title="statusTooltip || null"
                 >
                     {{ statusLabel }}
                 </span>
                 <button
-                    v-if="showActions"
+                    v-if="shouldShowGenerateButton"
                     type="button"
                     class="reportActionBtn"
                     :disabled="isProcessing"
                     @click="handleGenerate"
                 >
                     <span v-if="isProcessing">處理中...</span>
-                    <span v-else-if="isReady">重新生成</span>
                     <span v-else>生成報告</span>
-                </button>
-                <button
-                    v-if="showActions && allowSelect"
-                    type="button"
-                    class="reportViewBtn"
-                    @click="handleSelect"
-                >
-                    {{ isError ? "檢視錯誤" : "查看" }}
                 </button>
             </template>
         </div>
@@ -311,6 +319,26 @@ function handleSelect(event) {
     color: var(--tree-badge-text);
 }
 
+.statusBadgeButton {
+    border: none;
+    font: inherit;
+}
+
+.statusBadgeButton:focus-visible {
+    outline: 2px solid var(--panel-accent);
+    outline-offset: 2px;
+}
+
+.statusBadge--actionable {
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.statusBadge--actionable:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+}
+
 .statusBadge--idle {
     background: var(--tree-badge-idle);
 }
@@ -352,23 +380,6 @@ function handleSelect(event) {
     background: rgba(148, 163, 184, 0.12);
     border-color: rgba(148, 163, 184, 0.35);
     color: var(--panel-muted);
-}
-
-.reportViewBtn {
-    margin-left: auto;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--panel-border);
-    background: rgba(148, 163, 184, 0.12);
-    color: var(--tree-text);
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.reportViewBtn:hover {
-    background: rgba(148, 163, 184, 0.2);
-    border-color: var(--panel-border-strong);
 }
 
 .reportErrorMessage {
