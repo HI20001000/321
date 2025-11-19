@@ -38,10 +38,7 @@ import {
     normaliseAiReviewPayload,
     parseReportJson
 } from "../scripts/reports/shared.js";
-import processJavaFile from "../scripts/java/index.js";
-import { processJavaBlocksWithDify } from "../scripts/java/difyProcessor.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
-import JavaReportCheck from "../components/workspace/JavaReportCheck.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
@@ -1091,16 +1088,6 @@ const shouldShowDmlChunkDetails = computed(() => {
     }
     return structuredReportViewMode.value === "dml";
 });
-
-const activeJavaReportBlocks = computed(() => {
-    const blocks = activeReport.value?.state?.javaBlocks;
-    return Array.isArray(blocks) ? blocks : [];
-});
-
-const hasActiveJavaReport = computed(() => activeJavaReportBlocks.value.length > 0);
-const activeJavaCombinedReport = computed(
-    () => activeReport.value?.state?.javaCombinedReport || ""
-);
 
 const canShowStructuredSummary = computed(() => Boolean(activeReportDetails.value));
 
@@ -2343,9 +2330,7 @@ function createDefaultReportState() {
         sourceError: "",
         combinedReportJson: "",
         staticReportJson: "",
-        aiReportJson: "",
-        javaBlocks: [],
-        javaCombinedReport: ""
+        aiReportJson: ""
     };
 }
 
@@ -2947,57 +2932,21 @@ async function generateReportForFile(project, node, options = {}) {
     state.combinedReportJson = "";
     state.staticReportJson = "";
     state.aiReportJson = "";
-    state.javaBlocks = [];
-    state.javaCombinedReport = "";
-
-    let javaProcessingResult = null;
 
     try {
         const { text } = await loadTextContentForNode(project, node);
 
-        let content = text;
-        const isJavaFile = typeof node?.name === "string" && node.name.toLowerCase().endsWith(".java");
-        let javaClassMethods = [];
-        if (isJavaFile) {
-            const { cleanedSource, classMethods } = processJavaFile({
-                source: text,
-                path: node?.path || node?.name
-            });
-            if (cleanedSource) {
-                content = cleanedSource;
-            }
-            if (Array.isArray(classMethods)) {
-                javaClassMethods = classMethods;
-            }
-            if (javaClassMethods.length) {
-                javaProcessingResult = await processJavaBlocksWithDify({
-                    projectId,
-                    projectName: project.name,
-                    path: node?.path || node?.name || "",
-                    classMethods: javaClassMethods
-                });
-            }
-        }
-
-        state.sourceText = content;
+        state.sourceText = text;
         state.sourceLoaded = true;
         state.sourceLoading = false;
         state.sourceError = "";
 
-        const useJavaPayload = Boolean(javaProcessingResult?.blocks?.length);
-        const payload = useJavaPayload
-            ? {
-                  report: javaProcessingResult.combinedReport || "",
-                  generatedAt: new Date().toISOString(),
-                  javaBlocks: javaProcessingResult.blocks,
-                  javaCombinedReport: javaProcessingResult.combinedReport || ""
-              }
-            : await generateReportViaDify({
-                  projectId,
-                  projectName: project.name,
-                  path: node.path,
-                  content
-              });
+        const payload = await generateReportViaDify({
+            projectId,
+            projectName: project.name,
+            path: node.path,
+            content: text
+        });
 
         const completedAt = payload?.generatedAt ? new Date(payload.generatedAt) : new Date();
         state.status = "ready";
@@ -3027,14 +2976,6 @@ async function generateReportForFile(project, node, options = {}) {
         state.combinedReportJson = typeof payload?.combinedReportJson === "string" ? payload.combinedReportJson : "";
         state.staticReportJson = typeof payload?.staticReportJson === "string" ? payload.staticReportJson : "";
         state.aiReportJson = typeof payload?.aiReportJson === "string" ? payload.aiReportJson : "";
-        state.javaBlocks = Array.isArray(javaProcessingResult?.blocks)
-            ? javaProcessingResult.blocks
-            : Array.isArray(payload?.javaBlocks)
-            ? payload.javaBlocks
-            : [];
-        state.javaCombinedReport =
-            (typeof javaProcessingResult?.combinedReport === "string" && javaProcessingResult.combinedReport) ||
-            (typeof payload?.javaCombinedReport === "string" ? payload.javaCombinedReport : "");
 
         if (autoSelect) {
             activeReportTarget.value = {
@@ -3067,8 +3008,6 @@ async function generateReportForFile(project, node, options = {}) {
         state.combinedReportJson = "";
         state.staticReportJson = "";
         state.aiReportJson = "";
-        state.javaBlocks = [];
-        state.javaCombinedReport = "";
         const now = new Date();
         state.updatedAt = now;
         state.updatedAtDisplay = now.toLocaleString();
@@ -3897,15 +3836,6 @@ onBeforeUnmount(() => {
                                                     ></pre>
                                                 </div>
                                             </details>
-                                        </section>
-                                        <section
-                                            v-if="hasActiveJavaReport"
-                                            class="reportJavaSection"
-                                        >
-                                            <JavaReportCheck
-                                                :blocks="activeJavaReportBlocks"
-                                                :combined-report="activeJavaCombinedReport"
-                                            />
                                         </section>
                                         <section
                                             v-if="structuredReportJsonPreview"
@@ -4868,11 +4798,6 @@ body,
 
 .reportStaticItemValue {
     color: #cbd5f5;
-}
-
-
-.reportJavaSection {
-    margin-top: 16px;
 }
 
 
