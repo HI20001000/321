@@ -1073,6 +1073,12 @@ function parseLineRangeValue(value) {
         return { start: Math.min(...endpoints), end: Math.max(...endpoints) };
     }
     if (value && typeof value === "object") {
+        if (value.line !== undefined) {
+            const parsed = parseLineRangeValue(value.line);
+            if (parsed) {
+                return parsed;
+            }
+        }
         const start = normaliseLineEndpoint(value.start ?? value.begin ?? value.from);
         const end = normaliseLineEndpoint(value.end ?? value.finish ?? value.to);
         if (start !== null || end !== null) {
