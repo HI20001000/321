@@ -988,19 +988,39 @@ const dmlChunkDetails = computed(() => {
         };
     });
 });
+function normaliseComparablePath(path) {
+    if (!path) return "";
+    return String(path)
+        .replace(/\\/g, "/")
+        .replace(/\/{2,}/g, "/")
+        .replace(/^\.\//, "")
+        .replace(/^\/+/, "")
+        .trim();
+}
+
 const activeReportSourceText = computed(() => {
     const report = activeReport.value;
     if (!report) return "";
-    const reportPath = report.path;
-    const previewPath = previewing.value?.path;
-    const previewText = previewing.value?.text;
 
-    if (previewPath && reportPath && previewPath === reportPath && typeof previewText === "string") {
+    const reportPath = normaliseComparablePath(report.path);
+    const previewPath = normaliseComparablePath(previewing.value?.path);
+    const previewText = previewing.value?.text;
+    const previewMatchesReport = Boolean(reportPath && previewPath && previewPath === reportPath);
+
+    if (previewMatchesReport && typeof previewText === "string" && previewText.length) {
         return previewText;
     }
 
     const text = report.state?.sourceText;
-    return typeof text === "string" ? text : "";
+    if (typeof text === "string" && text.length) {
+        return text;
+    }
+
+    if (previewMatchesReport && typeof previewText === "string") {
+        return previewText;
+    }
+
+    return "";
 });
 
 const activeReportSourceLines = computed(() => {
