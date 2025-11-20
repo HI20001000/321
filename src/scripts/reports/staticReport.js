@@ -216,6 +216,7 @@ function buildStaticIssueDetail(issue, index) {
                 : String(recommendationCandidate ?? "").trim();
         const evidence = typeof evidenceCandidate === "string" ? evidenceCandidate : String(evidenceCandidate ?? "");
 
+        const detail = Array.isArray(issue?.details) ? issue.details[detailIndex] || {} : {};
         const detailLineRangeCandidates = [
             detail.line,
             detail.line_text,
