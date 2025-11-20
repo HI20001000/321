@@ -2005,9 +2005,11 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
         const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [issue];
         details.forEach((detail, detailIndex) => {
             const lineIndex = Number(detail?.index ?? detailIndex + 1);
+            const lineMeta = ensureIssueLineMeta(issue);
+            const lineLabel = lineMeta.label || (Number.isFinite(lineIndex) ? `#${lineIndex}` : "");
             const badges = [];
-            if (Number.isFinite(lineIndex)) {
-                badges.push(`<span class="reportIssueInlineIndex">#${lineIndex}</span>`);
+            if (lineLabel) {
+                badges.push(`<span class="reportIssueInlineLine">Line ${escapeHtml(lineLabel)}</span>`);
             }
             if (detail?.ruleId) {
                 badges.push(`<span class="reportIssueInlineRule">${escapeHtml(detail.ruleId)}</span>`);
@@ -2019,14 +2021,6 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                         detail.severityLabel
                     )}</span>`
                 );
-            }
-            if (isOrphan) {
-                const lineLabel = describeIssueLineRange(issue);
-                if (lineLabel) {
-                    badges.push(
-                        `<span class="reportIssueInlineLine">Line ${escapeHtml(lineLabel)}</span>`
-                    );
-                }
             }
 
             const badgeBlock = badges.length
@@ -2052,10 +2046,9 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                 ? `<span class="reportIssueInlineMeta">${metaParts.join(" · ")}</span>`
                 : "";
 
-            const lineMeta = ensureIssueLineMeta(issue);
-            const lineLabel = lineMeta.label || (Number.isFinite(lineIndex) ? `#${lineIndex}` : "(unknown)");
+            const logLineLabel = lineLabel || (Number.isFinite(lineIndex) ? `#${lineIndex}` : "(unknown)");
             console.log("[reportIssueInlineRow]", {
-                line: lineLabel,
+                line: logLineLabel,
                 detailIndex,
                 isOrphan,
                 hasColumn: Number.isFinite(detail?.column),
