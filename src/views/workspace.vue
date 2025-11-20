@@ -1174,7 +1174,8 @@ const reportIssueLines = computed(() => {
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
     const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
 
-    let maxLine = sourceLines.length;
+    const sourceLineCount = sourceLines.length;
+    let maxLine = sourceLineCount;
     const issuesByLine = new Map();
     const orphanIssues = [];
 
@@ -1186,20 +1187,28 @@ const reportIssueLines = computed(() => {
             continue;
         }
         const startLine = Math.max(1, Math.floor(lineMeta.start));
+        if (!sourceLineCount || startLine > sourceLineCount) {
+            orphanIssues.push(issue);
+            continue;
+        }
         const hasEnd = Number.isFinite(lineMeta.end) && lineMeta.end > 0;
         const endCandidate = hasEnd ? Math.floor(lineMeta.end) : startLine;
         const effectiveEnd = Math.max(startLine, endCandidate);
-        const cappedEnd = Math.min(effectiveEnd, startLine + MAX_ISSUE_LINE_SPAN - 1);
+        const cappedEnd = Math.min(
+            effectiveEnd,
+            startLine + MAX_ISSUE_LINE_SPAN - 1,
+            sourceLineCount
+        );
         for (let lineNumber = startLine; lineNumber <= cappedEnd; lineNumber += 1) {
             const bucket = issuesByLine.get(lineNumber) || [];
             bucket.push(issue);
             issuesByLine.set(lineNumber, bucket);
         }
-        if (effectiveEnd > maxLine) {
-            maxLine = effectiveEnd;
-        }
-        if (effectiveEnd > cappedEnd && !orphanIssues.includes(issue)) {
+        if (effectiveEnd > sourceLineCount && !orphanIssues.includes(issue)) {
             orphanIssues.push(issue);
+        }
+        if (cappedEnd > maxLine) {
+            maxLine = cappedEnd;
         }
     }
 
