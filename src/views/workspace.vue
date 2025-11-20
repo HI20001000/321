@@ -991,6 +991,14 @@ const dmlChunkDetails = computed(() => {
 const activeReportSourceText = computed(() => {
     const report = activeReport.value;
     if (!report) return "";
+    const reportPath = report.path;
+    const previewPath = previewing.value?.path;
+    const previewText = previewing.value?.text;
+
+    if (previewPath && reportPath && previewPath === reportPath && typeof previewText === "string") {
+        return previewText;
+    }
+
     const text = report.state?.sourceText;
     return typeof text === "string" ? text : "";
 });
