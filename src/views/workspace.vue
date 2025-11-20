@@ -1266,6 +1266,12 @@ const reportIssueLines = computed(() => {
         });
 
         if (hasIssue) {
+            const lineRanges = lineIssues.map((issue) => ensureIssueLineMeta(issue)?.label || "").filter(Boolean);
+            console.log("[codeLineContent--issueHighlight]", {
+                line: lineNumber,
+                range: lineRanges.join(", ") || null,
+                issueCount: lineIssues.length
+            });
             result.push(buildIssueMetaLine("issues", lineNumber, lineIssues));
             result.push(buildIssueMetaLine("fix", lineNumber, lineIssues));
         }
@@ -2018,6 +2024,16 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
             const meta = metaParts.length
                 ? `<span class="reportIssueInlineMeta">${metaParts.join(" · ")}</span>`
                 : "";
+
+            const lineMeta = ensureIssueLineMeta(issue);
+            const lineLabel = lineMeta.label || (Number.isFinite(lineIndex) ? `#${lineIndex}` : "(unknown)");
+            console.log("[reportIssueInlineRow]", {
+                line: lineLabel,
+                detailIndex,
+                isOrphan,
+                hasColumn: Number.isFinite(detail?.column),
+                severity: detail?.severityLabel || issue?.severityLabel || null
+            });
 
             rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${meta}</div>`);
         });
