@@ -1125,16 +1125,8 @@ function extractLineRangeFromIssue(issue) {
     if (!issue || typeof issue !== "object") {
         return null;
     }
-    for (const key of ISSUE_LINE_VALUE_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(issue, key)) {
-            const parsed = parseLineRangeValue(issue[key]);
-            if (parsed) {
-                return parsed;
-            }
-        }
-    }
-    const metaCandidates = [issue.metadata, issue.meta];
-    for (const meta of metaCandidates) {
+
+    const extractRangeFromMeta = (meta) => {
         if (meta && typeof meta === "object") {
             const parsed = parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range);
             if (parsed) {
@@ -1150,14 +1142,49 @@ function extractLineRangeFromIssue(issue) {
                 }
             }
         }
+        return null;
+    };
+
+    const tryParseFromObject = (source) => {
+        if (!source || typeof source !== "object") return null;
+        for (const key of ISSUE_LINE_VALUE_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                const parsed = parseLineRangeValue(source[key]);
+                if (parsed) {
+                    return parsed;
+                }
+            }
+        }
+        const metaCandidates = [source.metadata, source.meta];
+        for (const meta of metaCandidates) {
+            const parsed = extractRangeFromMeta(meta);
+            if (parsed) {
+                return parsed;
+            }
+        }
+        const start = normaliseLineEndpoint(source.start_line ?? source.startLine);
+        const end = normaliseLineEndpoint(source.end_line ?? source.endLine);
+        if (start !== null || end !== null) {
+            const safeStart = start ?? end;
+            const safeEnd = end ?? start ?? safeStart;
+            if (safeStart) {
+                return { start: safeStart, end: safeEnd };
+            }
+        }
+        return null;
+    };
+
+    const parsedFromIssue = tryParseFromObject(issue);
+    if (parsedFromIssue) {
+        return parsedFromIssue;
     }
-    const start = normaliseLineEndpoint(issue.start_line ?? issue.startLine);
-    const end = normaliseLineEndpoint(issue.end_line ?? issue.endLine);
-    if (start !== null || end !== null) {
-        const safeStart = start ?? end;
-        const safeEnd = end ?? start ?? safeStart;
-        if (safeStart) {
-            return { start: safeStart, end: safeEnd };
+
+    if (Array.isArray(issue.details)) {
+        for (const detail of issue.details) {
+            const parsed = tryParseFromObject(detail);
+            if (parsed) {
+                return parsed;
+            }
         }
     }
     return null;
