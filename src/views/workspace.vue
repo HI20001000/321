@@ -988,11 +988,39 @@ const dmlChunkDetails = computed(() => {
         };
     });
 });
+function normaliseComparablePath(path) {
+    if (!path) return "";
+    return String(path)
+        .replace(/\\/g, "/")
+        .replace(/\/{2,}/g, "/")
+        .replace(/^\.\//, "")
+        .replace(/^\/+/, "")
+        .trim();
+}
+
 const activeReportSourceText = computed(() => {
     const report = activeReport.value;
     if (!report) return "";
+
+    const reportPath = normaliseComparablePath(report.path);
+    const previewPath = normaliseComparablePath(previewing.value?.path);
+    const previewText = previewing.value?.text;
+    const previewMatchesReport = Boolean(reportPath && previewPath && previewPath === reportPath);
+
+    if (previewMatchesReport && typeof previewText === "string" && previewText.length) {
+        return previewText;
+    }
+
     const text = report.state?.sourceText;
-    return typeof text === "string" ? text : "";
+    if (typeof text === "string" && text.length) {
+        return text;
+    }
+
+    if (previewMatchesReport && typeof previewText === "string") {
+        return previewText;
+    }
+
+    return "";
 });
 
 const activeReportSourceLines = computed(() => {
@@ -1073,6 +1101,12 @@ function parseLineRangeValue(value) {
         return { start: Math.min(...endpoints), end: Math.max(...endpoints) };
     }
     if (value && typeof value === "object") {
+        if (value.line !== undefined) {
+            const parsed = parseLineRangeValue(value.line);
+            if (parsed) {
+                return parsed;
+            }
+        }
         const start = normaliseLineEndpoint(value.start ?? value.begin ?? value.from);
         const end = normaliseLineEndpoint(value.end ?? value.finish ?? value.to);
         if (start !== null || end !== null) {
@@ -1091,16 +1125,8 @@ function extractLineRangeFromIssue(issue) {
     if (!issue || typeof issue !== "object") {
         return null;
     }
-    for (const key of ISSUE_LINE_VALUE_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(issue, key)) {
-            const parsed = parseLineRangeValue(issue[key]);
-            if (parsed) {
-                return parsed;
-            }
-        }
-    }
-    const metaCandidates = [issue.metadata, issue.meta];
-    for (const meta of metaCandidates) {
+
+    const extractRangeFromMeta = (meta) => {
         if (meta && typeof meta === "object") {
             const parsed = parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range);
             if (parsed) {
@@ -1116,14 +1142,49 @@ function extractLineRangeFromIssue(issue) {
                 }
             }
         }
+        return null;
+    };
+
+    const tryParseFromObject = (source) => {
+        if (!source || typeof source !== "object") return null;
+        for (const key of ISSUE_LINE_VALUE_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                const parsed = parseLineRangeValue(source[key]);
+                if (parsed) {
+                    return parsed;
+                }
+            }
+        }
+        const metaCandidates = [source.metadata, source.meta];
+        for (const meta of metaCandidates) {
+            const parsed = extractRangeFromMeta(meta);
+            if (parsed) {
+                return parsed;
+            }
+        }
+        const start = normaliseLineEndpoint(source.start_line ?? source.startLine);
+        const end = normaliseLineEndpoint(source.end_line ?? source.endLine);
+        if (start !== null || end !== null) {
+            const safeStart = start ?? end;
+            const safeEnd = end ?? start ?? safeStart;
+            if (safeStart) {
+                return { start: safeStart, end: safeEnd };
+            }
+        }
+        return null;
+    };
+
+    const parsedFromIssue = tryParseFromObject(issue);
+    if (parsedFromIssue) {
+        return parsedFromIssue;
     }
-    const start = normaliseLineEndpoint(issue.start_line ?? issue.startLine);
-    const end = normaliseLineEndpoint(issue.end_line ?? issue.endLine);
-    if (start !== null || end !== null) {
-        const safeStart = start ?? end;
-        const safeEnd = end ?? start ?? safeStart;
-        if (safeStart) {
-            return { start: safeStart, end: safeEnd };
+
+    if (Array.isArray(issue.details)) {
+        for (const detail of issue.details) {
+            const parsed = tryParseFromObject(detail);
+            if (parsed) {
+                return parsed;
+            }
         }
     }
     return null;
@@ -1168,7 +1229,8 @@ const reportIssueLines = computed(() => {
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
     const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
 
-    let maxLine = sourceLines.length;
+    const sourceLineCount = sourceLines.length;
+    let maxLine = sourceLineCount;
     const issuesByLine = new Map();
     const orphanIssues = [];
 
@@ -1180,20 +1242,28 @@ const reportIssueLines = computed(() => {
             continue;
         }
         const startLine = Math.max(1, Math.floor(lineMeta.start));
+        if (!sourceLineCount || startLine > sourceLineCount) {
+            orphanIssues.push(issue);
+            continue;
+        }
         const hasEnd = Number.isFinite(lineMeta.end) && lineMeta.end > 0;
         const endCandidate = hasEnd ? Math.floor(lineMeta.end) : startLine;
         const effectiveEnd = Math.max(startLine, endCandidate);
-        const cappedEnd = Math.min(effectiveEnd, startLine + MAX_ISSUE_LINE_SPAN - 1);
+        const cappedEnd = Math.min(
+            effectiveEnd,
+            startLine + MAX_ISSUE_LINE_SPAN - 1,
+            sourceLineCount
+        );
         for (let lineNumber = startLine; lineNumber <= cappedEnd; lineNumber += 1) {
             const bucket = issuesByLine.get(lineNumber) || [];
             bucket.push(issue);
             issuesByLine.set(lineNumber, bucket);
         }
-        if (effectiveEnd > maxLine) {
-            maxLine = effectiveEnd;
-        }
-        if (effectiveEnd > cappedEnd && !orphanIssues.includes(issue)) {
+        if (effectiveEnd > sourceLineCount && !orphanIssues.includes(issue)) {
             orphanIssues.push(issue);
+        }
+        if (cappedEnd > maxLine) {
+            maxLine = cappedEnd;
         }
     }
 
@@ -1223,6 +1293,12 @@ const reportIssueLines = computed(() => {
         });
 
         if (hasIssue) {
+            const lineRanges = lineIssues.map((issue) => ensureIssueLineMeta(issue)?.label || "").filter(Boolean);
+            console.log("[codeLineContent--issueHighlight]", {
+                line: lineNumber,
+                range: lineRanges.join(", ") || null,
+                issueCount: lineIssues.length
+            });
             result.push(buildIssueMetaLine("issues", lineNumber, lineIssues));
             result.push(buildIssueMetaLine("fix", lineNumber, lineIssues));
         }
@@ -1911,6 +1987,16 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
             const meta = metaParts.length
                 ? `<span class="reportIssueInlineMeta">${metaParts.join(" · ")}</span>`
                 : "";
+
+            const lineMeta = ensureIssueLineMeta(issue);
+            const lineLabel = lineMeta.label || (Number.isFinite(lineIndex) ? `#${lineIndex}` : "(unknown)");
+            console.log("[reportIssueInlineRow]", {
+                line: lineLabel,
+                detailIndex,
+                isOrphan,
+                hasColumn: Number.isFinite(detail?.column),
+                severity: detail?.severityLabel || issue?.severityLabel || null
+            });
 
             rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${meta}</div>`);
         });
