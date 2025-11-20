@@ -42,6 +42,75 @@ function toNumberList(value) {
     return Number.isFinite(numeric) ? [numeric] : [];
 }
 
+function normaliseLineEndpoint(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return null;
+    }
+    return Math.floor(numeric);
+}
+
+function parseLineRange(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value === "number") {
+        const endpoint = normaliseLineEndpoint(value);
+        return endpoint ? { start: endpoint, end: endpoint } : null;
+    }
+
+    if (typeof value === "string") {
+        const numbers = Array.from(value.matchAll(/\d+/g))
+            .map((match) => normaliseLineEndpoint(match[0]))
+            .filter((entry) => entry !== null);
+        if (!numbers.length) {
+            return null;
+        }
+        return { start: Math.min(...numbers), end: Math.max(...numbers) };
+    }
+
+    if (Array.isArray(value)) {
+        const endpoints = value
+            .map((entry) => normaliseLineEndpoint(entry))
+            .filter((entry) => entry !== null);
+        if (!endpoints.length) {
+            return null;
+        }
+        return { start: Math.min(...endpoints), end: Math.max(...endpoints) };
+    }
+
+    if (value && typeof value === "object") {
+        if (value.line !== undefined) {
+            const parsed = parseLineRange(value.line);
+            if (parsed) {
+                return parsed;
+            }
+        }
+        const start = normaliseLineEndpoint(value.start ?? value.begin ?? value.from);
+        const end = normaliseLineEndpoint(value.end ?? value.finish ?? value.to);
+        if (start !== null || end !== null) {
+            const safeStart = start ?? end;
+            const safeEnd = end ?? start ?? safeStart;
+            if (safeStart) {
+                return { start: safeStart, end: safeEnd };
+            }
+        }
+    }
+
+    return null;
+}
+
+function formatLineRange(range) {
+    if (!range) {
+        return "";
+    }
+    if (range.start === range.end) {
+        return String(range.start);
+    }
+    return `${range.start}-${range.end}`;
+}
+
 function buildStaticIssueDetail(issue, index) {
     const ruleList = toStringList(issue?.rule_ids);
     if (!ruleList.length) {
@@ -77,6 +146,30 @@ function buildStaticIssueDetail(issue, index) {
     if (!columnList.length) {
         columnList.push(...toNumberList(issue?.columns));
     }
+
+    const lineRangeCandidates = [
+        issue?.line,
+        issue?.line_text,
+        issue?.lineText,
+        issue?.line_range,
+        issue?.lineRange,
+        issue?.line_label,
+        issue?.lineLabel,
+        issue?.line_number,
+        issue?.lineNumber,
+        issue?.line_no,
+        issue?.lineNo
+    ];
+    let lineRange = null;
+    for (const candidate of lineRangeCandidates) {
+        lineRange = parseLineRange(candidate);
+        if (lineRange) break;
+    }
+
+    const baseLineNumberRaw = Number(issue?.line);
+    const baseLineNumber = lineRange?.start ?? (Number.isFinite(baseLineNumberRaw) ? baseLineNumberRaw : null);
+    const lineRangeValue = lineRange ? { ...lineRange } : null;
+    const lineLabel = formatLineRange(lineRange);
 
     const detailCount = Math.max(
         messageList.length,
@@ -123,6 +216,28 @@ function buildStaticIssueDetail(issue, index) {
                 : String(recommendationCandidate ?? "").trim();
         const evidence = typeof evidenceCandidate === "string" ? evidenceCandidate : String(evidenceCandidate ?? "");
 
+        const detailLineRangeCandidates = [
+            detail.line,
+            detail.line_text,
+            detail.lineText,
+            detail.line_range,
+            detail.lineRange,
+            detail.line_label,
+            detail.lineLabel,
+            detail.line_number,
+            detail.lineNumber,
+            detail.line_no,
+            detail.lineNo
+        ];
+        let detailLineRange = null;
+        for (const candidate of detailLineRangeCandidates) {
+            detailLineRange = parseLineRange(candidate);
+            if (detailLineRange) break;
+        }
+        const effectiveLineRange = detailLineRange || lineRange;
+        const effectiveLineValue = effectiveLineRange ? { ...effectiveLineRange } : null;
+        const effectiveLineLabel = formatLineRange(effectiveLineRange);
+
         details.push({
             key: `${index}-detail-${detailIndex}`,
             index: details.length + 1,
@@ -133,7 +248,11 @@ function buildStaticIssueDetail(issue, index) {
             message,
             column,
             suggestion,
-            evidence
+            evidence,
+            line: effectiveLineRange?.start ?? baseLineNumber,
+            line_range: effectiveLineValue,
+            lineRange: effectiveLineValue,
+            lineLabel: effectiveLineLabel
         });
     }
 
@@ -158,8 +277,7 @@ function buildStaticIssueDetail(issue, index) {
     const snippet = typeof issue?.snippet === "string" ? issue.snippet : "";
     const snippetLines = snippet ? snippet.replace(/\r\n?/g, "\n").split("\n") : [];
 
-    const baseLineNumber = Number(issue?.line);
-    const line = Number.isFinite(baseLineNumber) ? baseLineNumber : null;
+    const line = baseLineNumber;
 
     const codeLines = snippetLines.map((lineText, idx) => {
         const rawText = lineText.replace(/\r$/, "");
@@ -232,6 +350,9 @@ function buildStaticIssueDetail(issue, index) {
         message: primaryMessage,
         objectName,
         line,
+        line_range: lineRangeValue,
+        lineRange: lineRangeValue,
+        lineLabel,
         column: columns,
         columnPrimary,
         snippet,
