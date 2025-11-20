@@ -1,10 +1,35 @@
 const JAVA_FILE_REGEX = /\.java$/i;
+const PUBLIC_CLASS_REGEX = /public\s+(?:class|interface|enum)\s+([A-Za-z_$][\w$]*)[^\{]*\{/g;
+const CLASS_REGEX = /(class|interface|enum)\s+([A-Za-z_$][\w$]*)[^\{]*\{/g;
 
 export function isJavaPath(path) {
     if (typeof path !== "string") {
         return false;
     }
     return JAVA_FILE_REGEX.test(path);
+}
+
+function stripPackageAndImports(source) {
+    return source.replace(/^[\t ]*(?:package|import)\s+[^;]+;\s*/gm, "");
+}
+
+function stripBlockComments(source) {
+    return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function stripLineComments(source) {
+    return source.replace(/(?<![:\\])\/\/[^\n\r]*/g, "");
+}
+
+export function sanitiseJavaSource(source) {
+    if (typeof source !== "string" || !source.trim()) {
+        return typeof source === "string" ? source.trim() : "";
+    }
+    let result = source;
+    result = stripPackageAndImports(result);
+    result = stripBlockComments(result);
+    result = stripLineComments(result);
+    return result.replace(/\r\n/g, "\n").trim();
 }
 
 function findMatchingBrace(source, openIndex) {
@@ -72,12 +97,11 @@ function cleanSignature(signature) {
         .trim();
 }
 
-function extractClasses(source) {
+function extractClasses(source, regex) {
     if (typeof source !== "string" || !source.trim()) {
         return [];
     }
     const classes = [];
-    const regex = /(class|interface|enum)\s+([A-Za-z_$][\w$]*)[^\{]*\{/g;
     let match;
     while ((match = regex.exec(source))) {
         const braceIndex = source.indexOf("{", match.index);
@@ -88,14 +112,23 @@ function extractClasses(source) {
         if (closingIndex === -1) {
             continue;
         }
+        const className = match[2] || match[1];
         classes.push({
-            className: match[2],
+            className,
             bodyStart: braceIndex + 1,
             bodyEnd: closingIndex
         });
         regex.lastIndex = closingIndex + 1;
     }
     return classes;
+}
+
+function extractPublicClasses(source) {
+    const publicClasses = extractClasses(source, PUBLIC_CLASS_REGEX);
+    if (publicClasses.length) {
+        return publicClasses;
+    }
+    return extractClasses(source, CLASS_REGEX);
 }
 
 function extractMethodsFromClass(source, classInfo) {
@@ -138,7 +171,7 @@ export function extractJavaMethodSegments(source) {
     if (typeof source !== "string" || !source.trim()) {
         return [];
     }
-    const classes = extractClasses(source);
+    const classes = extractPublicClasses(source);
     if (!classes.length) {
         return [];
     }
@@ -149,9 +182,11 @@ export function extractJavaMethodSegments(source) {
         classMethods.forEach((method) => {
             const startLine = lineNumberForIndex(lineIndex, method.startIndex);
             const endLine = lineNumberForIndex(lineIndex, method.endIndex);
+            const rawText = method.block;
+            const cleaned = sanitiseJavaSource(rawText);
             segments.push({
-                text: method.block,
-                rawText: method.block,
+                text: cleaned || rawText,
+                rawText,
                 className: classInfo.className,
                 methodName: method.methodName,
                 methodSignature: method.signature,
@@ -177,5 +212,6 @@ export function buildJavaSegments(source) {
 export default {
     isJavaPath,
     extractJavaMethodSegments,
-    buildJavaSegments
+    buildJavaSegments,
+    sanitiseJavaSource
 };
