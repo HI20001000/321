@@ -1889,6 +1889,16 @@ watch(activeReport, (report) => {
     ensureStructuredReportViewMode("combined");
 });
 
+watch(
+    [activeReport, activeReportDetails],
+    ([report, details]) => {
+        if (report && details) {
+            logReportDebugInfo(report, details);
+        }
+    },
+    { flush: "post" }
+);
+
 const middlePaneStyle = computed(() => {
     const hasActiveTool = isProjectToolActive.value || isReportToolActive.value;
     const width = hasActiveTool ? middlePaneWidth.value : 0;
@@ -1937,6 +1947,60 @@ function buildIssueMetaLine(type, keySource, issues, isOrphan = false) {
         isMeta: true,
         isOrphan: Boolean(isOrphan)
     };
+}
+
+function buildIssueLineDebugInfo(issues) {
+    if (!Array.isArray(issues) || !issues.length) {
+        return [];
+    }
+
+    return issues.map((issue, index) => {
+        const meta = ensureIssueLineMeta(issue);
+        return {
+            index,
+            rule: issue?.rule_id ?? issue?.ruleId ?? issue?.rule ?? "",
+            title: issue?.title ?? issue?.message ?? "",
+            line: meta.label,
+            start: meta.start,
+            end: meta.end
+        };
+    });
+}
+
+function logReportDebugInfo(report, details) {
+    if (!report || !report.state || report.state.status !== "ready") {
+        return;
+    }
+
+    const { state, path, project } = report;
+    const projectId = project?.id ?? null;
+    const projectName = project?.name ?? "";
+    const combinedReportJson = normaliseJsonContent(state.combinedReportJson);
+
+    const { staticIssues, aiIssues, aggregatedIssues } = activeReportIssueSources.value;
+    const issueDebugEntries = buildIssueLineDebugInfo([
+        ...(Array.isArray(staticIssues) ? staticIssues : []),
+        ...(Array.isArray(aiIssues) ? aiIssues : []),
+        ...(Array.isArray(aggregatedIssues) ? aggregatedIssues : [])
+    ]);
+
+    const payload = {
+        projectId,
+        projectName,
+        path,
+        combinedReportJson: combinedReportJson || null,
+        parsedReport: state.parsedReport || null
+    };
+
+    console.groupCollapsed("[Report][Debug] Selected report payload");
+    console.log(payload);
+    console.groupEnd();
+
+    if (details && details.issues) {
+        console.groupCollapsed("[Report][Debug] Issue line ranges");
+        console.log(issueDebugEntries);
+        console.groupEnd();
+    }
 }
 
 function buildIssueDetailsHtml(issues, isOrphan = false) {
