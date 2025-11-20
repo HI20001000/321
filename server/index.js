@@ -4,7 +4,7 @@ import pool from "./lib/db.js";
 import { ensureSchema } from "./lib/ensureSchema.js";
 import { getDifyConfigSummary, partitionContent, requestDifyReport } from "./lib/difyClient.js";
 import { analyseSqlToReport, buildSqlReportPayload, isSqlPath } from "./lib/sqlAnalyzer.js";
-import { buildJavaSegments, isJavaPath } from "./lib/javaProcessor.js";
+import { buildJavaSegments, isJavaPath, sanitiseJavaSource } from "./lib/javaProcessor.js";
 
 const REPORT_DEBUG_LOGS = process.env.REPORT_DEBUG_LOGS === "true";
 
@@ -1327,8 +1327,11 @@ app.post("/api/reports/dify", async (req, res, next) => {
         }
 
         const javaFile = isJavaPath(path);
+        const cleanedJavaContent = javaFile ? sanitiseJavaSource(content) : content;
         const javaSegments = javaFile ? buildJavaSegments(content) : [];
-        const segments = javaSegments.length ? javaSegments : partitionContent(content);
+        const segments = javaSegments.length
+            ? javaSegments
+            : partitionContent(typeof cleanedJavaContent === "string" ? cleanedJavaContent : content);
         const summary = getDifyConfigSummary();
         if (REPORT_DEBUG_LOGS) {
             console.log(
@@ -1340,7 +1343,7 @@ app.post("/api/reports/dify", async (req, res, next) => {
         const result = await requestDifyReport({
             projectName: projectName || projectId,
             filePath: path,
-            content,
+            content: cleanedJavaContent,
             userId,
             segments,
             files
