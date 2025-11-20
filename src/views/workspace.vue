@@ -1205,7 +1205,14 @@ function ensureIssueLineMeta(issue) {
         return { start: null, end: null, label: "" };
     }
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
-        return issue.__lineMeta;
+        const cached = issue.__lineMeta;
+        const hasLine =
+            (Number.isFinite(cached.start) && cached.start > 0) ||
+            (Number.isFinite(cached.end) && cached.end > 0) ||
+            (typeof cached.label === "string" && cached.label.trim());
+        if (hasLine) {
+            return cached;
+        }
     }
     const range = extractLineRangeFromIssue(issue);
     const meta = {
