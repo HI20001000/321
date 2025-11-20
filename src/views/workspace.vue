@@ -1206,11 +1206,13 @@ function ensureIssueLineMeta(issue) {
     }
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
         const cached = issue.__lineMeta;
-        const hasLine =
-            (Number.isFinite(cached.start) && cached.start > 0) ||
-            (Number.isFinite(cached.end) && cached.end > 0) ||
-            (typeof cached.label === "string" && cached.label.trim());
-        if (hasLine) {
+        const hasLabel = typeof cached.label === "string" && cached.label.trim();
+        const hasRange =
+            Number.isFinite(cached.start) &&
+            cached.start > 0 &&
+            Number.isFinite(cached.end) &&
+            cached.end > 0;
+        if (hasLabel || hasRange) {
             return cached;
         }
     }
