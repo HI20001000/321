@@ -358,6 +358,10 @@ const activeReportDetails = computed(() => {
     };
 
     const aggregatedReportsSources = [];
+    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
+    if (combinedReportJson) {
+        aggregatedReportsSources.push(combinedReportJson);
+    }
     if (report.state?.analysis?.aggregatedReports) {
         aggregatedReportsSources.push(report.state.analysis.aggregatedReports);
     }
@@ -366,10 +370,6 @@ const activeReportDetails = computed(() => {
     }
     if (aggregatedPayload?.aggregatedReports) {
         aggregatedReportsSources.push(aggregatedPayload.aggregatedReports);
-    }
-    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
-    if (combinedReportJson) {
-        aggregatedReportsSources.push(combinedReportJson);
     }
 
     let aggregatedReports = null;
