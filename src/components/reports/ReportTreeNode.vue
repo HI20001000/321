@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 defineOptions({ name: "ReportTreeNode" });
 
@@ -147,6 +147,14 @@ const statusTooltip = computed(() => {
     return baseTooltip || regenHint || "";
 });
 
+const isStatusBadgeHovered = ref(false);
+const statusLabelDisplay = computed(() => {
+    if (isStatusBadgeHovered.value && canTriggerRegenerate.value) {
+        return "重新生成報告";
+    }
+    return statusLabel.value;
+});
+
 function handleToggle() {
     if (!isDirectory.value) return;
     props.toggle(props.projectId, props.node.path);
@@ -198,8 +206,10 @@ function handleGenerate(event) {
                     :class="statusClass"
                     :title="statusTooltip || null"
                     @click.stop="handleGenerate"
+                    @mouseenter="isStatusBadgeHovered = true"
+                    @mouseleave="isStatusBadgeHovered = false"
                 >
-                    {{ statusLabel }}
+                    {{ statusLabelDisplay }}
                 </button>
                 <span
                     v-else
@@ -349,6 +359,12 @@ function handleGenerate(event) {
 
 .statusBadge--ready {
     background: var(--tree-badge-ready);
+}
+
+.statusBadge--actionable.statusBadge--ready:hover {
+    background: #1d4ed8;
+    color: #eff6ff;
+    box-shadow: 0 2px 8px rgba(30, 64, 175, 0.35);
 }
 
 .statusBadge--error {

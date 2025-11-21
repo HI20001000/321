@@ -2322,9 +2322,13 @@ const buildIssueFixHtml = (issues) => {
     issues.forEach((issue) => {
         const recommendations = collectRecommendations(issue);
         if (recommendations.length) {
-            recommendations.forEach((text) => {
-                rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
-            });
+            const items = recommendations
+                .map(
+                    (text) =>
+                        `<li class="reportIssueInlineRow reportIssueInlineRecommendation">${escapeHtml(text)}</li>`
+                )
+                .join("");
+            rows.push(`<ul class="reportIssueInlineRecommendationList">${items}</ul>`);
         } else {
             rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
@@ -5726,9 +5730,6 @@ body,
     align-items: flex-start;
     margin: 0 0 6px;
     color: #1e3a8a;
-    background: #e0f2fe;
-    border-radius: 8px;
-    padding: 8px 10px;
 }
 
 .reportIssueInlineRow:last-child {
@@ -5738,6 +5739,22 @@ body,
 .reportIssueInlineRow--empty {
     color: #475569;
     font-style: italic;
+}
+
+.reportIssueInlineRecommendationList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    padding-left: 0;
+    margin: 0 0 8px;
+    list-style: none;
+}
+
+.reportIssueInlineRecommendation {
+    background: #e0f2fe;
+    border-radius: 8px;
+    padding: 8px 10px;
 }
 
 .reportIssueInlineList {
