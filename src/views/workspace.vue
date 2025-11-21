@@ -1279,9 +1279,14 @@ function normaliseIssueLineMeta(meta) {
     const parsedFromRange =
         parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range ?? meta.label) || null;
 
-    const start =
+    let start =
         normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from) ?? parsedFromRange?.start ?? null;
-    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
+    let end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
+
+    if (Number.isFinite(start) && Number.isFinite(end) && start > end) {
+        [start, end] = [end, start];
+    }
+
     const hasStart = start !== null;
     const hasEnd = end !== null;
     const safeStart = hasStart ? start : hasEnd ? end : null;
@@ -1351,6 +1356,7 @@ const reportIssueLines = computed(() => {
     const sourceLineCount = sourceLines.length;
     let maxLine = sourceLineCount;
     const issuesByLine = new Map();
+    const issuesEndingByLine = new Map();
     const orphanIssues = [];
 
     for (const issue of issues) {
@@ -1378,6 +1384,9 @@ const reportIssueLines = computed(() => {
             bucket.push(issue);
             issuesByLine.set(lineNumber, bucket);
         }
+        const endBucket = issuesEndingByLine.get(cappedEnd) || [];
+        endBucket.push(issue);
+        issuesEndingByLine.set(cappedEnd, endBucket);
         if (effectiveEnd > sourceLineCount && !orphanIssues.includes(issue)) {
             orphanIssues.push(issue);
         }
@@ -1399,6 +1408,7 @@ const reportIssueLines = computed(() => {
     for (let lineNumber = 1; lineNumber <= Math.max(1, maxLine); lineNumber += 1) {
         const baseLine = ensureLineEntry(lineNumber);
         const lineIssues = issuesByLine.get(lineNumber) || [];
+        const endingIssues = issuesEndingByLine.get(lineNumber) || [];
         const hasIssue = lineIssues.length > 0;
 
         result.push({
@@ -1411,15 +1421,17 @@ const reportIssueLines = computed(() => {
             issues: lineIssues
         });
 
-        if (hasIssue) {
-            const lineRanges = lineIssues.map((issue) => ensureIssueLineMeta(issue)?.label || "").filter(Boolean);
+        if (endingIssues.length) {
+            const lineRanges = endingIssues
+                .map((issue) => ensureIssueLineMeta(issue)?.label || "")
+                .filter(Boolean);
             console.log("[codeLineContent--issueHighlight]", {
                 line: lineNumber,
                 range: lineRanges.join(", ") || null,
-                issueCount: lineIssues.length
+                issueCount: endingIssues.length
             });
-            result.push(buildIssueMetaLine("issues", lineNumber, lineIssues));
-            result.push(buildIssueMetaLine("fix", lineNumber, lineIssues));
+            result.push(buildIssueMetaLine("issues", lineNumber, endingIssues));
+            result.push(buildIssueMetaLine("fix", lineNumber, endingIssues));
         }
     }
 
@@ -2280,6 +2292,12 @@ function buildIssueFixHtml(issues) {
         if (Array.isArray(issue?.suggestionList)) {
             pushList(issue.suggestionList);
         }
+        if (Array.isArray(issue?.suggestionList)) {
+            pushList(issue.suggestionList);
+        }
+
+        return entries;
+    };
 
         return entries;
     };
