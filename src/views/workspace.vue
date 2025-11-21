@@ -2240,7 +2240,7 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
     return rows.join("");
 }
 
-function buildIssueFixHtml(issues) {
+const buildIssueFixHtml = (issues) => {
     if (!Array.isArray(issues) || !issues.length) {
         return '<div class="reportIssueInlineRow reportIssueInlineRow--empty">暫無建議</div>';
     }
@@ -2292,12 +2292,6 @@ function buildIssueFixHtml(issues) {
         if (Array.isArray(issue?.suggestionList)) {
             pushList(issue.suggestionList);
         }
-        if (Array.isArray(issue?.suggestionList)) {
-            pushList(issue.suggestionList);
-        }
-
-        return entries;
-    };
 
         return entries;
     };
@@ -2350,7 +2344,7 @@ function buildIssueFixHtml(issues) {
     }
 
     return rows.join("");
-}
+};
 
 function renderLineContent(line) {
     const rawText = typeof line?.raw === "string" ? line.raw : (line?.content || "").replace(/ /g, " ");
