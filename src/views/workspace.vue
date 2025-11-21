@@ -5725,7 +5725,10 @@ body,
     gap: 8px;
     align-items: flex-start;
     margin: 0 0 6px;
-    color: #0f172a;
+    color: #1e3a8a;
+    background: #e0f2fe;
+    border-radius: 8px;
+    padding: 8px 10px;
 }
 
 .reportIssueInlineRow:last-child {
@@ -5790,15 +5793,15 @@ body,
 
 .reportIssueInlineCode {
     width: 100%;
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
     border-radius: 8px;
     padding: 10px 12px;
     font-family: var(--code-font, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
     font-size: 13px;
     line-height: 1.55;
     white-space: pre-wrap;
-    color: #7c2d12;
+    color: #1d4ed8;
     background-clip: padding-box;
 }
 
