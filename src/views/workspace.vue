@@ -2120,6 +2120,35 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
 
     const rows = [];
 
+    const buildSeverityRuleIssueTuples = (issue) => {
+        const severityLevels = Array.isArray(issue?.severity_levels)
+            ? issue.severity_levels
+            : [];
+        const ruleIds = Array.isArray(issue?.rule_ids) ? issue.rule_ids : [];
+        const issueMessages = Array.isArray(issue?.issues) ? issue.issues : [];
+        const maxLen = Math.max(severityLevels.length, ruleIds.length, issueMessages.length);
+
+        if (!maxLen) return "";
+
+        const tupleRows = [];
+
+        for (let index = 0; index < maxLen; index += 1) {
+            const severity = typeof severityLevels[index] === "string" ? severityLevels[index].trim() : "";
+            const ruleId = typeof ruleIds[index] === "string" ? ruleIds[index].trim() : "";
+            const issueText = typeof issueMessages[index] === "string" ? issueMessages[index].trim() : "";
+
+            tupleRows.push(
+                `<li class="reportIssueInlineTuple">` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--severity">${escapeHtml(severity)}</span>` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--rule">${escapeHtml(ruleId)}</span>` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--message">${escapeHtml(issueText)}</span>` +
+                `</li>`
+            );
+        }
+
+        return `<ul class="reportIssueInlineTupleList">${tupleRows.join("")}</ul>`;
+    };
+
     issues.forEach((issue) => {
         const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [issue];
         const issueItems = Array.isArray(issue?.issues)
@@ -2157,11 +2186,16 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                       : "未提供說明";
             const message = `<span class="reportIssueInlineMessage">${escapeHtml(messageText)}</span>`;
 
-            const issueList = issueItems.length
-                ? `<ul class="reportIssueInlineList">${issueItems
-                      .map((text) => `<li>${escapeHtml(text)}</li>`)
-                      .join("")}</ul>`
-                : "";
+            const issueList = (() => {
+                const tupleList = buildSeverityRuleIssueTuples(issue);
+                if (tupleList) return tupleList;
+
+                return issueItems.length
+                    ? `<ul class="reportIssueInlineList">${issueItems
+                          .map((text) => `<li>${escapeHtml(text)}</li>`)
+                          .join("")}</ul>`
+                    : "";
+            })();
 
             const metaParts = [];
             if (issue?.objectName) {
@@ -2200,106 +2234,97 @@ function buildIssueFixHtml(issues) {
     }
 
     const rows = [];
-    const suggestionSet = new Set();
-    const suggestionQueue = [];
-    const recommendationSet = new Set();
-    const recommendationQueue = [];
-    const fixedCodeSet = new Set();
-    const fixedCodeQueue = [];
 
-    const pushSuggestion = (value) => {
-        if (typeof value !== "string") return;
-        const trimmed = value.trim();
-        if (!trimmed || suggestionSet.has(trimmed)) return;
-        suggestionSet.add(trimmed);
-        suggestionQueue.push(trimmed);
-    };
+    const collectRecommendations = (issue) => {
+        const entries = [];
+        const push = (value) => {
+            if (typeof value !== "string") return;
+            const trimmed = value.trim();
+            if (!trimmed) return;
+            entries.push(trimmed);
+        };
 
-    const pushRecommendation = (value) => {
-        if (typeof value !== "string") return;
-        const trimmed = value.trim();
-        if (!trimmed || recommendationSet.has(trimmed)) return;
-        recommendationSet.add(trimmed);
-        recommendationQueue.push(trimmed);
-    };
+        const pushList = (list) => {
+            if (!Array.isArray(list)) return;
+            list.forEach((item) => push(item));
+        };
 
-    issues.forEach((issue) => {
-        const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [];
+        const details = Array.isArray(issue?.details) ? issue.details : [];
         details.forEach((detail) => {
-            if (typeof detail?.suggestion === "string") {
-                pushSuggestion(detail.suggestion);
-            }
-
             if (typeof detail?.recommendation === "string") {
-                pushRecommendation(detail.recommendation);
+                push(detail.recommendation);
             }
-
             if (Array.isArray(detail?.recommendation)) {
-                detail.recommendation
-                    .filter((item) => typeof item === "string")
-                    .forEach((item) => pushRecommendation(item));
+                pushList(detail.recommendation);
             }
+            if (typeof detail?.suggestion === "string") {
+                push(detail.suggestion);
+            }
+            if (Array.isArray(detail?.suggestion)) {
+                pushList(detail.suggestion);
+            }
+        });
 
-            const fixedCodeDetail =
+        if (typeof issue?.recommendation === "string") {
+            push(issue.recommendation);
+        }
+        if (Array.isArray(issue?.recommendation)) {
+            pushList(issue.recommendation);
+        }
+        if (Array.isArray(issue?.recommendations)) {
+            pushList(issue.recommendations);
+        }
+        if (typeof issue?.suggestion === "string") {
+            push(issue.suggestion);
+        }
+        if (Array.isArray(issue?.suggestionList)) {
+            pushList(issue.suggestionList);
+        }
+
+        return entries;
+    };
+
+    const extractFixedCode = (issue) => {
+        const details = Array.isArray(issue?.details) ? issue.details : [];
+        for (const detail of details) {
+            const candidate =
                 typeof detail?.fixed_code === "string"
                     ? detail.fixed_code
                     : typeof detail?.fixedCode === "string"
                       ? detail.fixedCode
                       : "";
-            if (fixedCodeDetail) {
-                const trimmed = fixedCodeDetail.trim();
-                if (trimmed && !fixedCodeSet.has(trimmed)) {
-                    fixedCodeSet.add(trimmed);
-                    fixedCodeQueue.push(trimmed);
-                }
+            if (candidate && candidate.trim()) {
+                return candidate.trim();
             }
-        });
-
-        const suggestionList = Array.isArray(issue?.suggestionList) ? issue.suggestionList : [];
-        suggestionList.forEach((item) => {
-            if (typeof item === "string") {
-                pushSuggestion(item);
-            }
-        });
-
-        if (typeof issue?.suggestion === "string") {
-            pushSuggestion(issue.suggestion);
         }
 
-        if (typeof issue?.recommendation === "string") {
-            pushRecommendation(issue.recommendation);
+        if (typeof issue?.fixed_code === "string" && issue.fixed_code.trim()) {
+            return issue.fixed_code.trim();
+        }
+        if (typeof issue?.fixedCode === "string" && issue.fixedCode.trim()) {
+            return issue.fixedCode.trim();
+        }
+        return "";
+    };
+
+    issues.forEach((issue) => {
+        const recommendations = collectRecommendations(issue);
+        if (recommendations.length) {
+            recommendations.forEach((text) => {
+                rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
+            });
+        } else {
+            rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
 
-        if (Array.isArray(issue?.recommendation)) {
-            issue.recommendation
-                .filter((item) => typeof item === "string")
-                .forEach((item) => pushRecommendation(item));
+        const fixedCode = extractFixedCode(issue);
+        if (fixedCode) {
+            rows.push(
+                `<pre class="reportIssueInlineRow reportIssueInlineCode"><code>${escapeHtml(fixedCode)}</code></pre>`
+            );
+        } else {
+            rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
-
-        const fixedCode = (() => {
-            if (typeof issue?.fixed_code === "string") return issue.fixed_code.trim();
-            if (typeof issue?.fixedCode === "string") return issue.fixedCode.trim();
-            return "";
-        })();
-
-        if (fixedCode && !fixedCodeSet.has(fixedCode)) {
-            fixedCodeSet.add(fixedCode);
-            fixedCodeQueue.push(fixedCode);
-        }
-    });
-
-    suggestionQueue.forEach((text) => {
-        rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
-    });
-
-    recommendationQueue.forEach((text) => {
-        rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
-    });
-
-    fixedCodeQueue.forEach((code) => {
-        rows.push(
-            `<pre class="reportIssueInlineRow reportIssueInlineCode"><code>${escapeHtml(code)}</code></pre>`
-        );
     });
 
     if (!rows.length) {
@@ -5706,6 +5731,47 @@ body,
 
 .reportIssueInlineList li {
     margin: 2px 0;
+}
+
+.reportIssueInlineTupleList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding-left: 0;
+    margin: 4px 0 0;
+    list-style: none;
+}
+
+.reportIssueInlineTuple {
+    display: grid;
+    grid-template-columns: minmax(80px, 1fr) minmax(120px, 1fr) 2fr;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.6);
+    color: #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.reportIssueInlineTupleItem {
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.reportIssueInlineTupleItem--severity {
+    font-weight: 700;
+    color: #9a3412;
+}
+
+.reportIssueInlineTupleItem--rule {
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+.reportIssueInlineTupleItem--message {
+    color: #0b1120;
 }
 
 .reportIssueInlineCode {
