@@ -358,6 +358,10 @@ const activeReportDetails = computed(() => {
     };
 
     const aggregatedReportsSources = [];
+    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
+    if (combinedReportJson) {
+        aggregatedReportsSources.push(combinedReportJson);
+    }
     if (report.state?.analysis?.aggregatedReports) {
         aggregatedReportsSources.push(report.state.analysis.aggregatedReports);
     }
@@ -366,10 +370,6 @@ const activeReportDetails = computed(() => {
     }
     if (aggregatedPayload?.aggregatedReports) {
         aggregatedReportsSources.push(aggregatedPayload.aggregatedReports);
-    }
-    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
-    if (combinedReportJson) {
-        aggregatedReportsSources.push(combinedReportJson);
     }
 
     let aggregatedReports = null;
@@ -1200,12 +1200,39 @@ function formatLineRangeLabel(range) {
     return `${range.start}-${range.end}`;
 }
 
+function normaliseIssueLineMeta(meta) {
+    if (!meta || typeof meta !== "object") {
+        return { start: null, end: null, label: "" };
+    }
+
+    const parsedFromRange =
+        parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range ?? meta.label) || null;
+
+    const start =
+        normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from) ?? parsedFromRange?.start ?? null;
+    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
+    const hasStart = start !== null;
+    const hasEnd = end !== null;
+    const safeStart = hasStart ? start : hasEnd ? end : null;
+    const safeEnd = hasEnd ? end : hasStart ? start : null;
+    const label =
+        (typeof meta.label === "string" && meta.label.trim()) ||
+        formatLineRangeLabel(safeStart ? { start: safeStart, end: safeEnd ?? safeStart } : null);
+
+    return {
+        start: safeStart,
+        end: safeEnd,
+        label: typeof label === "string" ? label : ""
+    };
+}
+
 function ensureIssueLineMeta(issue) {
     if (!issue || typeof issue !== "object") {
         return { start: null, end: null, label: "" };
     }
+
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
-        const cached = issue.__lineMeta;
+        const cached = normaliseIssueLineMeta(issue.__lineMeta);
         const hasLabel = typeof cached.label === "string" && cached.label.trim();
         const hasRange =
             Number.isFinite(cached.start) &&
@@ -1213,15 +1240,18 @@ function ensureIssueLineMeta(issue) {
             Number.isFinite(cached.end) &&
             cached.end > 0;
         if (hasLabel || hasRange) {
+            issue.__lineMeta = cached;
             return cached;
         }
     }
+
     const range = extractLineRangeFromIssue(issue);
-    const meta = {
+    const meta = normaliseIssueLineMeta({
         start: range?.start ?? null,
         end: range?.end ?? null,
         label: formatLineRangeLabel(range)
-    };
+    });
+
     issue.__lineMeta = meta;
     return meta;
 }
@@ -1236,7 +1266,9 @@ const reportIssueLines = computed(() => {
     const sourceLines = activeReportSourceLines.value;
     const normalised = Array.isArray(details?.issues) ? details.issues : [];
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
-    const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
+    // Prefer aggregated issues when present so we retain full line ranges (e.g. "2-5")
+    // instead of any normalised summaries that may have lost span information.
+    const issues = aggregated.length ? aggregated : normalised.length ? normalised : [];
 
     const sourceLineCount = sourceLines.length;
     let maxLine = sourceLineCount;
