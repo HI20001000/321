@@ -332,12 +332,14 @@ function handleGenerate(event) {
     letter-spacing: 0.04em;
     color: var(--tree-badge-text);
     line-height: 1.25;
+    transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease,
+        border-color 0.3s ease;
 }
 
 .statusBadgeButton {
     border: none;
-    font: inherit;
     background: transparent;
+    transition: color 0.3s ease, background-color 0.3s ease;
 }
 
 .statusBadgeButton:focus-visible {
@@ -347,7 +349,8 @@ function handleGenerate(event) {
 
 .statusBadge--actionable {
     cursor: pointer;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease,
+        color 0.3s ease;
 }
 
 .statusBadge--actionable:hover {
@@ -379,12 +382,12 @@ function handleGenerate(event) {
 
 .reportActionBtn {
     flex: 0 0 auto;
-    padding: 6px 12px;
+    padding: 0px 6px;
     border-radius: 6px;
     border: 1px solid var(--panel-accent);
     background: var(--panel-accent-soft);
     color: var(--panel-heading);
-    font-size: 12px;
+    font-size: 11px;
     cursor: pointer;
     transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
