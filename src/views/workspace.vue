@@ -1200,12 +1200,35 @@ function formatLineRangeLabel(range) {
     return `${range.start}-${range.end}`;
 }
 
+function normaliseIssueLineMeta(meta) {
+    if (!meta || typeof meta !== "object") {
+        return { start: null, end: null, label: "" };
+    }
+
+    const start = normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from);
+    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to);
+    const hasStart = start !== null;
+    const hasEnd = end !== null;
+    const safeStart = hasStart ? start : hasEnd ? end : null;
+    const safeEnd = hasEnd ? end : hasStart ? start : null;
+    const label =
+        (typeof meta.label === "string" && meta.label.trim()) ||
+        formatLineRangeLabel(safeStart ? { start: safeStart, end: safeEnd ?? safeStart } : null);
+
+    return {
+        start: safeStart,
+        end: safeEnd,
+        label: typeof label === "string" ? label : ""
+    };
+}
+
 function ensureIssueLineMeta(issue) {
     if (!issue || typeof issue !== "object") {
         return { start: null, end: null, label: "" };
     }
+
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
-        const cached = issue.__lineMeta;
+        const cached = normaliseIssueLineMeta(issue.__lineMeta);
         const hasLabel = typeof cached.label === "string" && cached.label.trim();
         const hasRange =
             Number.isFinite(cached.start) &&
@@ -1213,15 +1236,18 @@ function ensureIssueLineMeta(issue) {
             Number.isFinite(cached.end) &&
             cached.end > 0;
         if (hasLabel || hasRange) {
+            issue.__lineMeta = cached;
             return cached;
         }
     }
+
     const range = extractLineRangeFromIssue(issue);
-    const meta = {
+    const meta = normaliseIssueLineMeta({
         start: range?.start ?? null,
         end: range?.end ?? null,
         label: formatLineRangeLabel(range)
-    };
+    });
+
     issue.__lineMeta = meta;
     return meta;
 }
