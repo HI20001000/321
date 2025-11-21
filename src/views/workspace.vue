@@ -358,6 +358,10 @@ const activeReportDetails = computed(() => {
     };
 
     const aggregatedReportsSources = [];
+    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
+    if (combinedReportJson) {
+        aggregatedReportsSources.push(combinedReportJson);
+    }
     if (report.state?.analysis?.aggregatedReports) {
         aggregatedReportsSources.push(report.state.analysis.aggregatedReports);
     }
@@ -366,10 +370,6 @@ const activeReportDetails = computed(() => {
     }
     if (aggregatedPayload?.aggregatedReports) {
         aggregatedReportsSources.push(aggregatedPayload.aggregatedReports);
-    }
-    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
-    if (combinedReportJson) {
-        aggregatedReportsSources.push(combinedReportJson);
     }
 
     let aggregatedReports = null;
@@ -1059,6 +1059,77 @@ const ISSUE_LINE_VALUE_KEYS = [
     "lineRangeText"
 ];
 
+function serialiseLineSignatureValue(value) {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    try {
+        return JSON.stringify(value);
+    } catch (_error) {
+        return "[unserialisable]";
+    }
+}
+
+function buildIssueLineSignature(issue) {
+    const parts = [];
+
+    const collectFromSource = (source) => {
+        if (!source || typeof source !== "object") return;
+        for (const key of ISSUE_LINE_VALUE_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                parts.push(`${key}:${serialiseLineSignatureValue(source[key])}`);
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "start")) {
+            parts.push(`start:${serialiseLineSignatureValue(source.start)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "end")) {
+            parts.push(`end:${serialiseLineSignatureValue(source.end)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "begin")) {
+            parts.push(`begin:${serialiseLineSignatureValue(source.begin)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "finish")) {
+            parts.push(`finish:${serialiseLineSignatureValue(source.finish)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "from")) {
+            parts.push(`from:${serialiseLineSignatureValue(source.from)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "to")) {
+            parts.push(`to:${serialiseLineSignatureValue(source.to)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "start_line")) {
+            parts.push(`start_line:${serialiseLineSignatureValue(source.start_line)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "end_line")) {
+            parts.push(`end_line:${serialiseLineSignatureValue(source.end_line)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "startLine")) {
+            parts.push(`startLine:${serialiseLineSignatureValue(source.startLine)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "endLine")) {
+            parts.push(`endLine:${serialiseLineSignatureValue(source.endLine)}`);
+        }
+        if (source.metadata && typeof source.metadata === "object") {
+            collectFromSource(source.metadata);
+        }
+        if (source.meta && typeof source.meta === "object") {
+            collectFromSource(source.meta);
+        }
+    };
+
+    collectFromSource(issue);
+
+    if (Array.isArray(issue?.details)) {
+        issue.details.forEach((detail) => collectFromSource(detail));
+    }
+
+    return parts.join("|");
+}
+
 function normaliseLineEndpoint(value) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -1200,28 +1271,65 @@ function formatLineRangeLabel(range) {
     return `${range.start}-${range.end}`;
 }
 
+function normaliseIssueLineMeta(meta) {
+    if (!meta || typeof meta !== "object") {
+        return { start: null, end: null, label: "" };
+    }
+
+    const parsedFromRange =
+        parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range ?? meta.label) || null;
+
+    const start =
+        normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from) ?? parsedFromRange?.start ?? null;
+    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
+    const hasStart = start !== null;
+    const hasEnd = end !== null;
+    const safeStart = hasStart ? start : hasEnd ? end : null;
+    const safeEnd = hasEnd ? end : hasStart ? start : null;
+    const label =
+        (typeof meta.label === "string" && meta.label.trim()) ||
+        formatLineRangeLabel(safeStart ? { start: safeStart, end: safeEnd ?? safeStart } : null);
+
+    const signature = typeof meta.signature === "string" ? meta.signature : undefined;
+
+    return {
+        start: safeStart,
+        end: safeEnd,
+        label: typeof label === "string" ? label : "",
+        signature
+    };
+}
+
 function ensureIssueLineMeta(issue) {
     if (!issue || typeof issue !== "object") {
         return { start: null, end: null, label: "" };
     }
+
+    const signature = buildIssueLineSignature(issue);
+
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
-        const cached = issue.__lineMeta;
+        const cached = normaliseIssueLineMeta(issue.__lineMeta);
         const hasLabel = typeof cached.label === "string" && cached.label.trim();
         const hasRange =
             Number.isFinite(cached.start) &&
             cached.start > 0 &&
             Number.isFinite(cached.end) &&
             cached.end > 0;
-        if (hasLabel || hasRange) {
+        if ((hasLabel || hasRange) && cached.signature === signature) {
+            issue.__lineMeta = cached;
             return cached;
         }
     }
+
     const range = extractLineRangeFromIssue(issue);
-    const meta = {
+    const meta = normaliseIssueLineMeta({
         start: range?.start ?? null,
         end: range?.end ?? null,
         label: formatLineRangeLabel(range)
-    };
+    });
+
+    meta.signature = signature;
+
     issue.__lineMeta = meta;
     return meta;
 }
@@ -1236,7 +1344,9 @@ const reportIssueLines = computed(() => {
     const sourceLines = activeReportSourceLines.value;
     const normalised = Array.isArray(details?.issues) ? details.issues : [];
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
-    const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
+    // Prefer aggregated issues when present so we retain full line ranges (e.g. "2-5")
+    // instead of any normalised summaries that may have lost span information.
+    const issues = aggregated.length ? aggregated : normalised.length ? normalised : [];
 
     const sourceLineCount = sourceLines.length;
     let maxLine = sourceLineCount;
