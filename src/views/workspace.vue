@@ -2122,6 +2122,9 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
 
     issues.forEach((issue) => {
         const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [issue];
+        const issueItems = Array.isArray(issue?.issues)
+            ? issue.issues.filter((entry) => typeof entry === "string" && entry.trim())
+            : [];
         details.forEach((detail, detailIndex) => {
             const lineIndex = Number(detail?.index ?? detailIndex + 1);
             const lineMeta = ensureIssueLineMeta(issue);
@@ -2154,6 +2157,12 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                       : "未提供說明";
             const message = `<span class="reportIssueInlineMessage">${escapeHtml(messageText)}</span>`;
 
+            const issueList = issueItems.length
+                ? `<ul class="reportIssueInlineList">${issueItems
+                      .map((text) => `<li>${escapeHtml(text)}</li>`)
+                      .join("")}</ul>`
+                : "";
+
             const metaParts = [];
             if (issue?.objectName) {
                 metaParts.push(`<span class="reportIssueInlineObject">${escapeHtml(issue.objectName)}</span>`);
@@ -2174,7 +2183,7 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                 severity: detail?.severityLabel || issue?.severityLabel || null
             });
 
-            rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${meta}</div>`);
+            rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${issueList}${meta}</div>`);
         });
     });
 
@@ -2193,6 +2202,8 @@ function buildIssueFixHtml(issues) {
     const rows = [];
     const suggestionSet = new Set();
     const suggestionQueue = [];
+    const recommendationSet = new Set();
+    const recommendationQueue = [];
     const fixedCodeSet = new Set();
     const fixedCodeQueue = [];
 
@@ -2204,11 +2215,43 @@ function buildIssueFixHtml(issues) {
         suggestionQueue.push(trimmed);
     };
 
+    const pushRecommendation = (value) => {
+        if (typeof value !== "string") return;
+        const trimmed = value.trim();
+        if (!trimmed || recommendationSet.has(trimmed)) return;
+        recommendationSet.add(trimmed);
+        recommendationQueue.push(trimmed);
+    };
+
     issues.forEach((issue) => {
         const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [];
         details.forEach((detail) => {
             if (typeof detail?.suggestion === "string") {
                 pushSuggestion(detail.suggestion);
+            }
+
+            if (typeof detail?.recommendation === "string") {
+                pushRecommendation(detail.recommendation);
+            }
+
+            if (Array.isArray(detail?.recommendation)) {
+                detail.recommendation
+                    .filter((item) => typeof item === "string")
+                    .forEach((item) => pushRecommendation(item));
+            }
+
+            const fixedCodeDetail =
+                typeof detail?.fixed_code === "string"
+                    ? detail.fixed_code
+                    : typeof detail?.fixedCode === "string"
+                      ? detail.fixedCode
+                      : "";
+            if (fixedCodeDetail) {
+                const trimmed = fixedCodeDetail.trim();
+                if (trimmed && !fixedCodeSet.has(trimmed)) {
+                    fixedCodeSet.add(trimmed);
+                    fixedCodeQueue.push(trimmed);
+                }
             }
         });
 
@@ -2223,7 +2266,22 @@ function buildIssueFixHtml(issues) {
             pushSuggestion(issue.suggestion);
         }
 
-        const fixedCode = typeof issue?.fixedCode === "string" ? issue.fixedCode.trim() : "";
+        if (typeof issue?.recommendation === "string") {
+            pushRecommendation(issue.recommendation);
+        }
+
+        if (Array.isArray(issue?.recommendation)) {
+            issue.recommendation
+                .filter((item) => typeof item === "string")
+                .forEach((item) => pushRecommendation(item));
+        }
+
+        const fixedCode = (() => {
+            if (typeof issue?.fixed_code === "string") return issue.fixed_code.trim();
+            if (typeof issue?.fixedCode === "string") return issue.fixedCode.trim();
+            return "";
+        })();
+
         if (fixedCode && !fixedCodeSet.has(fixedCode)) {
             fixedCodeSet.add(fixedCode);
             fixedCodeQueue.push(fixedCode);
@@ -2231,6 +2289,10 @@ function buildIssueFixHtml(issues) {
     });
 
     suggestionQueue.forEach((text) => {
+        rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
+    });
+
+    recommendationQueue.forEach((text) => {
         rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
     });
 
@@ -5634,6 +5696,16 @@ body,
 .reportIssueInlineRow--empty {
     color: #475569;
     font-style: italic;
+}
+
+.reportIssueInlineList {
+    padding-left: 18px;
+    margin: 4px 0 0;
+    color: inherit;
+}
+
+.reportIssueInlineList li {
+    margin: 2px 0;
 }
 
 .reportIssueInlineCode {
