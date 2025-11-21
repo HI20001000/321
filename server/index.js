@@ -8,6 +8,30 @@ import { buildJavaSegments, isJavaPath } from "./lib/javaProcessor.js";
 
 const REPORT_DEBUG_LOGS = process.env.REPORT_DEBUG_LOGS === "true";
 
+function applyLineOffsetToSegments(segments, offset) {
+    if (!Array.isArray(segments) || !segments.length || !offset) {
+        return segments;
+    }
+    return segments.map((segment) => {
+        const startLine = typeof segment?.startLine === "number" ? segment.startLine + offset : segment?.startLine;
+        const endLine = typeof segment?.endLine === "number" ? segment.endLine + offset : segment?.endLine;
+        let codeLocationLabel = segment?.codeLocationLabel;
+        if (typeof startLine === "number" && !Number.isNaN(startLine)) {
+            if (typeof endLine === "number" && !Number.isNaN(endLine) && endLine !== startLine) {
+                codeLocationLabel = `程式碼位置：第 ${startLine}-${endLine} 行`;
+            } else {
+                codeLocationLabel = `程式碼位置：第 ${startLine} 行`;
+            }
+        }
+        return {
+            ...segment,
+            startLine,
+            endLine,
+            codeLocationLabel
+        };
+    });
+}
+
 const app = express();
 
 app.use(express.json({ limit: process.env.REQUEST_BODY_LIMIT || "10mb" }));
@@ -1465,14 +1489,22 @@ app.post("/api/reports/dify/snippet", async (req, res, next) => {
             return;
         }
 
-        const segments = partitionContent(normalised.content);
+        const javaFile = isJavaPath(path);
+        const selectionOffset = normalised.meta?.startLine
+            ? Math.max(0, Number(normalised.meta.startLine) - 1)
+            : 0;
+        const javaSegments = javaFile ? buildJavaSegments(normalised.content) : [];
+        const normalisedSegments = javaSegments.length
+            ? applyLineOffsetToSegments(javaSegments, selectionOffset)
+            : partitionContent(normalised.content);
         const summary = getDifyConfigSummary();
         const rangeLabel = normalised.meta
             ? `${normalised.meta.startLine ?? "-"}-${normalised.meta.endLine ?? "-"}`
             : "full";
         if (REPORT_DEBUG_LOGS) {
             console.log(
-                `[dify] Generating snippet report project=${projectId} path=${path} segments=${segments.length} range=${rangeLabel} maxSegmentChars=${summary.maxSegmentChars}`
+                `[dify] Generating snippet report project=${projectId} path=${path} segments=${normalisedSegments.length} range=${rangeLabel} ` +
+                    `maxSegmentChars=${summary.maxSegmentChars}${javaFile ? " (java)" : ""}`
             );
         }
 
@@ -1481,7 +1513,7 @@ app.post("/api/reports/dify/snippet", async (req, res, next) => {
             filePath: path,
             content: normalised.content,
             userId,
-            segments,
+            segments: normalisedSegments,
             files,
             selection: normalised.meta
         });
