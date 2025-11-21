@@ -5778,9 +5778,10 @@ body,
 }
 
 .reportIssueInlineTuple {
-    display: grid;
-    grid-template-columns: minmax(80px, 1fr) minmax(120px, 1fr) 2fr;
+    display: flex;
+    align-items: flex-start;
     gap: 8px;
+    width: 100%;
     padding: 6px 8px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.6);
@@ -5792,6 +5793,7 @@ body,
     font-size: 12px;
     line-height: 1.5;
     word-break: break-word;
+    text-align: left;
 }
 
 .reportIssueInlineTupleItem--severity {
@@ -5806,6 +5808,8 @@ body,
 
 .reportIssueInlineTupleItem--message {
     color: #0b1120;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .reportIssueInlineCode {

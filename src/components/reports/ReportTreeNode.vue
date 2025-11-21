@@ -320,18 +320,24 @@ function handleGenerate(event) {
 
 .statusBadge {
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 2px 8px;
     border-radius: 999px;
+    border: 1px solid transparent;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--tree-badge-text);
+    line-height: 1.25;
 }
 
 .statusBadgeButton {
     border: none;
     font: inherit;
+    background: transparent;
 }
 
 .statusBadgeButton:focus-visible {
