@@ -1266,7 +1266,9 @@ const reportIssueLines = computed(() => {
     const sourceLines = activeReportSourceLines.value;
     const normalised = Array.isArray(details?.issues) ? details.issues : [];
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
-    const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
+    // Prefer aggregated issues when present so we retain full line ranges (e.g. "2-5")
+    // instead of any normalised summaries that may have lost span information.
+    const issues = aggregated.length ? aggregated : normalised.length ? normalised : [];
 
     const sourceLineCount = sourceLines.length;
     let maxLine = sourceLineCount;
