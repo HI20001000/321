@@ -2292,6 +2292,12 @@ function buildIssueFixHtml(issues) {
         if (Array.isArray(issue?.suggestionList)) {
             pushList(issue.suggestionList);
         }
+        if (Array.isArray(issue?.suggestionList)) {
+            pushList(issue.suggestionList);
+        }
+
+        return entries;
+    };
 
         return entries;
     };
