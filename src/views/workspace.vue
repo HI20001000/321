@@ -358,6 +358,10 @@ const activeReportDetails = computed(() => {
     };
 
     const aggregatedReportsSources = [];
+    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
+    if (combinedReportJson) {
+        aggregatedReportsSources.push(combinedReportJson);
+    }
     if (report.state?.analysis?.aggregatedReports) {
         aggregatedReportsSources.push(report.state.analysis.aggregatedReports);
     }
@@ -366,10 +370,6 @@ const activeReportDetails = computed(() => {
     }
     if (aggregatedPayload?.aggregatedReports) {
         aggregatedReportsSources.push(aggregatedPayload.aggregatedReports);
-    }
-    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
-    if (combinedReportJson) {
-        aggregatedReportsSources.push(combinedReportJson);
     }
 
     let aggregatedReports = null;
@@ -1059,6 +1059,77 @@ const ISSUE_LINE_VALUE_KEYS = [
     "lineRangeText"
 ];
 
+function serialiseLineSignatureValue(value) {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    try {
+        return JSON.stringify(value);
+    } catch (_error) {
+        return "[unserialisable]";
+    }
+}
+
+function buildIssueLineSignature(issue) {
+    const parts = [];
+
+    const collectFromSource = (source) => {
+        if (!source || typeof source !== "object") return;
+        for (const key of ISSUE_LINE_VALUE_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                parts.push(`${key}:${serialiseLineSignatureValue(source[key])}`);
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "start")) {
+            parts.push(`start:${serialiseLineSignatureValue(source.start)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "end")) {
+            parts.push(`end:${serialiseLineSignatureValue(source.end)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "begin")) {
+            parts.push(`begin:${serialiseLineSignatureValue(source.begin)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "finish")) {
+            parts.push(`finish:${serialiseLineSignatureValue(source.finish)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "from")) {
+            parts.push(`from:${serialiseLineSignatureValue(source.from)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "to")) {
+            parts.push(`to:${serialiseLineSignatureValue(source.to)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "start_line")) {
+            parts.push(`start_line:${serialiseLineSignatureValue(source.start_line)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "end_line")) {
+            parts.push(`end_line:${serialiseLineSignatureValue(source.end_line)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "startLine")) {
+            parts.push(`startLine:${serialiseLineSignatureValue(source.startLine)}`);
+        }
+        if (Object.prototype.hasOwnProperty.call(source, "endLine")) {
+            parts.push(`endLine:${serialiseLineSignatureValue(source.endLine)}`);
+        }
+        if (source.metadata && typeof source.metadata === "object") {
+            collectFromSource(source.metadata);
+        }
+        if (source.meta && typeof source.meta === "object") {
+            collectFromSource(source.meta);
+        }
+    };
+
+    collectFromSource(issue);
+
+    if (Array.isArray(issue?.details)) {
+        issue.details.forEach((detail) => collectFromSource(detail));
+    }
+
+    return parts.join("|");
+}
+
 function normaliseLineEndpoint(value) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -1200,28 +1271,70 @@ function formatLineRangeLabel(range) {
     return `${range.start}-${range.end}`;
 }
 
+function normaliseIssueLineMeta(meta) {
+    if (!meta || typeof meta !== "object") {
+        return { start: null, end: null, label: "" };
+    }
+
+    const parsedFromRange =
+        parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range ?? meta.label) || null;
+
+    let start =
+        normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from) ?? parsedFromRange?.start ?? null;
+    let end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
+
+    if (Number.isFinite(start) && Number.isFinite(end) && start > end) {
+        [start, end] = [end, start];
+    }
+
+    const hasStart = start !== null;
+    const hasEnd = end !== null;
+    const safeStart = hasStart ? start : hasEnd ? end : null;
+    const safeEnd = hasEnd ? end : hasStart ? start : null;
+    const label =
+        (typeof meta.label === "string" && meta.label.trim()) ||
+        formatLineRangeLabel(safeStart ? { start: safeStart, end: safeEnd ?? safeStart } : null);
+
+    const signature = typeof meta.signature === "string" ? meta.signature : undefined;
+
+    return {
+        start: safeStart,
+        end: safeEnd,
+        label: typeof label === "string" ? label : "",
+        signature
+    };
+}
+
 function ensureIssueLineMeta(issue) {
     if (!issue || typeof issue !== "object") {
         return { start: null, end: null, label: "" };
     }
+
+    const signature = buildIssueLineSignature(issue);
+
     if (issue.__lineMeta && typeof issue.__lineMeta === "object") {
-        const cached = issue.__lineMeta;
+        const cached = normaliseIssueLineMeta(issue.__lineMeta);
         const hasLabel = typeof cached.label === "string" && cached.label.trim();
         const hasRange =
             Number.isFinite(cached.start) &&
             cached.start > 0 &&
             Number.isFinite(cached.end) &&
             cached.end > 0;
-        if (hasLabel || hasRange) {
+        if ((hasLabel || hasRange) && cached.signature === signature) {
+            issue.__lineMeta = cached;
             return cached;
         }
     }
+
     const range = extractLineRangeFromIssue(issue);
-    const meta = {
+    const meta = normaliseIssueLineMeta({
         start: range?.start ?? null,
         end: range?.end ?? null,
         label: formatLineRangeLabel(range)
-    };
+    });
+
+    meta.signature = signature;
+
     issue.__lineMeta = meta;
     return meta;
 }
@@ -1236,11 +1349,14 @@ const reportIssueLines = computed(() => {
     const sourceLines = activeReportSourceLines.value;
     const normalised = Array.isArray(details?.issues) ? details.issues : [];
     const aggregated = Array.isArray(details?.aggregatedIssues) ? details.aggregatedIssues : [];
-    const issues = normalised.length ? normalised : aggregated.length ? aggregated : [];
+    // Prefer aggregated issues when present so we retain full line ranges (e.g. "2-5")
+    // instead of any normalised summaries that may have lost span information.
+    const issues = aggregated.length ? aggregated : normalised.length ? normalised : [];
 
     const sourceLineCount = sourceLines.length;
     let maxLine = sourceLineCount;
     const issuesByLine = new Map();
+    const issuesEndingByLine = new Map();
     const orphanIssues = [];
 
     for (const issue of issues) {
@@ -1268,6 +1384,9 @@ const reportIssueLines = computed(() => {
             bucket.push(issue);
             issuesByLine.set(lineNumber, bucket);
         }
+        const endBucket = issuesEndingByLine.get(cappedEnd) || [];
+        endBucket.push(issue);
+        issuesEndingByLine.set(cappedEnd, endBucket);
         if (effectiveEnd > sourceLineCount && !orphanIssues.includes(issue)) {
             orphanIssues.push(issue);
         }
@@ -1289,6 +1408,7 @@ const reportIssueLines = computed(() => {
     for (let lineNumber = 1; lineNumber <= Math.max(1, maxLine); lineNumber += 1) {
         const baseLine = ensureLineEntry(lineNumber);
         const lineIssues = issuesByLine.get(lineNumber) || [];
+        const endingIssues = issuesEndingByLine.get(lineNumber) || [];
         const hasIssue = lineIssues.length > 0;
 
         result.push({
@@ -1301,15 +1421,17 @@ const reportIssueLines = computed(() => {
             issues: lineIssues
         });
 
-        if (hasIssue) {
-            const lineRanges = lineIssues.map((issue) => ensureIssueLineMeta(issue)?.label || "").filter(Boolean);
+        if (endingIssues.length) {
+            const lineRanges = endingIssues
+                .map((issue) => ensureIssueLineMeta(issue)?.label || "")
+                .filter(Boolean);
             console.log("[codeLineContent--issueHighlight]", {
                 line: lineNumber,
                 range: lineRanges.join(", ") || null,
-                issueCount: lineIssues.length
+                issueCount: endingIssues.length
             });
-            result.push(buildIssueMetaLine("issues", lineNumber, lineIssues));
-            result.push(buildIssueMetaLine("fix", lineNumber, lineIssues));
+            result.push(buildIssueMetaLine("issues", lineNumber, endingIssues));
+            result.push(buildIssueMetaLine("fix", lineNumber, endingIssues));
         }
     }
 
@@ -2010,8 +2132,40 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
 
     const rows = [];
 
+    const buildSeverityRuleIssueTuples = (issue) => {
+        const severityLevels = Array.isArray(issue?.severity_levels)
+            ? issue.severity_levels
+            : [];
+        const ruleIds = Array.isArray(issue?.rule_ids) ? issue.rule_ids : [];
+        const issueMessages = Array.isArray(issue?.issues) ? issue.issues : [];
+        const maxLen = Math.max(severityLevels.length, ruleIds.length, issueMessages.length);
+
+        if (!maxLen) return "";
+
+        const tupleRows = [];
+
+        for (let index = 0; index < maxLen; index += 1) {
+            const severity = typeof severityLevels[index] === "string" ? severityLevels[index].trim() : "";
+            const ruleId = typeof ruleIds[index] === "string" ? ruleIds[index].trim() : "";
+            const issueText = typeof issueMessages[index] === "string" ? issueMessages[index].trim() : "";
+
+            tupleRows.push(
+                `<li class="reportIssueInlineTuple">` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--severity">${escapeHtml(severity)}</span>` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--rule">${escapeHtml(ruleId)}</span>` +
+                    `<span class="reportIssueInlineTupleItem reportIssueInlineTupleItem--message">${escapeHtml(issueText)}</span>` +
+                `</li>`
+            );
+        }
+
+        return `<ul class="reportIssueInlineTupleList">${tupleRows.join("")}</ul>`;
+    };
+
     issues.forEach((issue) => {
         const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [issue];
+        const issueItems = Array.isArray(issue?.issues)
+            ? issue.issues.filter((entry) => typeof entry === "string" && entry.trim())
+            : [];
         details.forEach((detail, detailIndex) => {
             const lineIndex = Number(detail?.index ?? detailIndex + 1);
             const lineMeta = ensureIssueLineMeta(issue);
@@ -2044,6 +2198,17 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                       : "未提供說明";
             const message = `<span class="reportIssueInlineMessage">${escapeHtml(messageText)}</span>`;
 
+            const issueList = (() => {
+                const tupleList = buildSeverityRuleIssueTuples(issue);
+                if (tupleList) return tupleList;
+
+                return issueItems.length
+                    ? `<ul class="reportIssueInlineList">${issueItems
+                          .map((text) => `<li>${escapeHtml(text)}</li>`)
+                          .join("")}</ul>`
+                    : "";
+            })();
+
             const metaParts = [];
             if (issue?.objectName) {
                 metaParts.push(`<span class="reportIssueInlineObject">${escapeHtml(issue.objectName)}</span>`);
@@ -2064,7 +2229,7 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
                 severity: detail?.severityLabel || issue?.severityLabel || null
             });
 
-            rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${meta}</div>`);
+            rows.push(`<div class="reportIssueInlineRow">${badgeBlock}${message}${issueList}${meta}</div>`);
         });
     });
 
@@ -2075,59 +2240,103 @@ function buildIssueDetailsHtml(issues, isOrphan = false) {
     return rows.join("");
 }
 
-function buildIssueFixHtml(issues) {
+const buildIssueFixHtml = (issues) => {
     if (!Array.isArray(issues) || !issues.length) {
         return '<div class="reportIssueInlineRow reportIssueInlineRow--empty">暫無建議</div>';
     }
 
     const rows = [];
-    const suggestionSet = new Set();
-    const suggestionQueue = [];
-    const fixedCodeSet = new Set();
-    const fixedCodeQueue = [];
 
-    const pushSuggestion = (value) => {
-        if (typeof value !== "string") return;
-        const trimmed = value.trim();
-        if (!trimmed || suggestionSet.has(trimmed)) return;
-        suggestionSet.add(trimmed);
-        suggestionQueue.push(trimmed);
+    const collectRecommendations = (issue) => {
+        const entries = [];
+        const push = (value) => {
+            if (typeof value !== "string") return;
+            const trimmed = value.trim();
+            if (!trimmed) return;
+            entries.push(trimmed);
+        };
+
+        const pushList = (list) => {
+            if (!Array.isArray(list)) return;
+            list.forEach((item) => push(item));
+        };
+
+        const details = Array.isArray(issue?.details) ? issue.details : [];
+        details.forEach((detail) => {
+            if (typeof detail?.recommendation === "string") {
+                push(detail.recommendation);
+            }
+            if (Array.isArray(detail?.recommendation)) {
+                pushList(detail.recommendation);
+            }
+            if (typeof detail?.suggestion === "string") {
+                push(detail.suggestion);
+            }
+            if (Array.isArray(detail?.suggestion)) {
+                pushList(detail.suggestion);
+            }
+        });
+
+        if (typeof issue?.recommendation === "string") {
+            push(issue.recommendation);
+        }
+        if (Array.isArray(issue?.recommendation)) {
+            pushList(issue.recommendation);
+        }
+        if (Array.isArray(issue?.recommendations)) {
+            pushList(issue.recommendations);
+        }
+        if (typeof issue?.suggestion === "string") {
+            push(issue.suggestion);
+        }
+        if (Array.isArray(issue?.suggestionList)) {
+            pushList(issue.suggestionList);
+        }
+
+        return entries;
+    };
+
+    const extractFixedCode = (issue) => {
+        const details = Array.isArray(issue?.details) ? issue.details : [];
+        for (const detail of details) {
+            const candidate =
+                typeof detail?.fixed_code === "string"
+                    ? detail.fixed_code
+                    : typeof detail?.fixedCode === "string"
+                      ? detail.fixedCode
+                      : "";
+            if (candidate && candidate.trim()) {
+                return candidate.trim();
+            }
+        }
+
+        if (typeof issue?.fixed_code === "string" && issue.fixed_code.trim()) {
+            return issue.fixed_code.trim();
+        }
+        if (typeof issue?.fixedCode === "string" && issue.fixedCode.trim()) {
+            return issue.fixedCode.trim();
+        }
+        return "";
     };
 
     issues.forEach((issue) => {
-        const details = Array.isArray(issue?.details) && issue.details.length ? issue.details : [];
-        details.forEach((detail) => {
-            if (typeof detail?.suggestion === "string") {
-                pushSuggestion(detail.suggestion);
-            }
-        });
-
-        const suggestionList = Array.isArray(issue?.suggestionList) ? issue.suggestionList : [];
-        suggestionList.forEach((item) => {
-            if (typeof item === "string") {
-                pushSuggestion(item);
-            }
-        });
-
-        if (typeof issue?.suggestion === "string") {
-            pushSuggestion(issue.suggestion);
+        const recommendations = collectRecommendations(issue);
+        if (recommendations.length) {
+            recommendations.forEach((text) => {
+                rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
+            });
+        } else {
+            rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
 
-        const fixedCode = typeof issue?.fixedCode === "string" ? issue.fixedCode.trim() : "";
-        if (fixedCode && !fixedCodeSet.has(fixedCode)) {
-            fixedCodeSet.add(fixedCode);
-            fixedCodeQueue.push(fixedCode);
+        const fixedCode = extractFixedCode(issue);
+        if (fixedCode) {
+            rows.push(
+                `<pre class="reportIssueInlineRow reportIssueInlineCode"><code>${escapeHtml(fixedCode)}</code></pre>`
+            );
+        } else {
+            rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
-    });
-
-    suggestionQueue.forEach((text) => {
-        rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
-    });
-
-    fixedCodeQueue.forEach((code) => {
-        rows.push(
-            `<pre class="reportIssueInlineRow reportIssueInlineCode"><code>${escapeHtml(code)}</code></pre>`
-        );
     });
 
     if (!rows.length) {
@@ -2135,7 +2344,7 @@ function buildIssueFixHtml(issues) {
     }
 
     return rows.join("");
-}
+};
 
 function renderLineContent(line) {
     const rawText = typeof line?.raw === "string" ? line.raw : (line?.content || "").replace(/ /g, " ");
@@ -5436,6 +5645,8 @@ body,
 .reportIssuesRow .codeLine--issue {
     background: rgba(248, 113, 113, 0.12);
     border-left-color: rgba(248, 113, 113, 0.65);
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 .codeLineNo--issue {
@@ -5524,6 +5735,57 @@ body,
 .reportIssueInlineRow--empty {
     color: #475569;
     font-style: italic;
+}
+
+.reportIssueInlineList {
+    padding-left: 18px;
+    margin: 4px 0 0;
+    color: inherit;
+}
+
+.reportIssueInlineList li {
+    margin: 2px 0;
+}
+
+.reportIssueInlineTupleList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding-left: 0;
+    margin: 4px 0 0;
+    list-style: none;
+}
+
+.reportIssueInlineTuple {
+    display: grid;
+    grid-template-columns: minmax(80px, 1fr) minmax(120px, 1fr) 2fr;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.6);
+    color: #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.reportIssueInlineTupleItem {
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.reportIssueInlineTupleItem--severity {
+    font-weight: 700;
+    color: #9a3412;
+}
+
+.reportIssueInlineTupleItem--rule {
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+.reportIssueInlineTupleItem--message {
+    color: #0b1120;
 }
 
 .reportIssueInlineCode {

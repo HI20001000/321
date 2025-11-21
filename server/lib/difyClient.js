@@ -527,13 +527,24 @@ function normaliseSegmentEntry(segment, index, total) {
     const endLine = normaliseChunkInteger(clone.endLine ?? startLine);
     const startColumn = normaliseChunkInteger(clone.startColumn ?? clone.column);
     const endColumn = normaliseChunkInteger(clone.endColumn);
+    const codeLocationLabel = typeof clone.codeLocationLabel === "string" && clone.codeLocationLabel.trim()
+        ? clone.codeLocationLabel.trim()
+        : null;
+
+    const derivedCodeLocationLabel = codeLocationLabel
+        || (startLine
+            ? endLine && endLine !== startLine
+                ? `程式碼位置：第 ${startLine}-${endLine} 行`
+                : `程式碼位置：第 ${startLine} 行`
+            : "");
 
     const entry = {
         ...clone,
         text: textValue,
         rawText: typeof clone.rawText === "string" ? clone.rawText : textValue,
         index: indexValue,
-        total: totalValue
+        total: totalValue,
+        codeLocationLabel: derivedCodeLocationLabel || undefined
     };
 
     if (startLine) {
@@ -620,7 +631,7 @@ function buildPrompt({ segmentText, projectName, filePath, chunkIndex, chunkTota
         "",
         `專案：${projectName || "(未命名專案)"}`,
         `檔案：${filePath}`,
-        describeSegmentLocation(location),
+        location?.codeLocationLabel || describeSegmentLocation(location),
         describeSelection(selection),
         location?.kind === "java_method" && location?.label ? `方法：${location.label}` : "",
         location?.kind === "java_method" && location?.className ? `類別：${location.className}` : "",
@@ -730,6 +741,10 @@ export async function requestDifyReport({
         const endLine = normaliseChunkInteger(segmentMeta.endLine ?? startLine);
         const startColumn = normaliseChunkInteger(segmentMeta.startColumn ?? segmentMeta.column);
         const endColumn = normaliseChunkInteger(segmentMeta.endColumn);
+        const codeLocationLabel =
+            typeof segmentMeta.codeLocationLabel === "string" && segmentMeta.codeLocationLabel.trim()
+                ? segmentMeta.codeLocationLabel.trim()
+                : null;
         if (startLine) {
             body.inputs.chunk_start_line = startLine;
             body.inputs.chunk_line = startLine;
@@ -747,6 +762,9 @@ export async function requestDifyReport({
         if (endColumn) {
             body.inputs.chunk_end_column = endColumn;
             body.inputs.end_column = endColumn;
+        }
+        if (codeLocationLabel) {
+            body.inputs.code_location = codeLocationLabel;
         }
         if (selectionMeta) {
             if (typeof selectionMeta.startLine === "number") {
