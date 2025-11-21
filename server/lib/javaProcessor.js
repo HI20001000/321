@@ -32,6 +32,94 @@ export function sanitiseJavaSource(source) {
     return result.replace(/\r\n/g, "\n").trim();
 }
 
+function maskNonCodeRegions(source) {
+    if (typeof source !== "string" || !source.length) {
+        return "";
+    }
+    const chars = Array.from(source);
+    let masked = "";
+    let index = 0;
+    let inBlockComment = false;
+    let inLineComment = false;
+    let inString = false;
+    let inChar = false;
+    let escapeNext = false;
+
+    while (index < chars.length) {
+        const current = chars[index];
+        const next = chars[index + 1];
+
+        if (inLineComment) {
+            if (current === "\n") {
+                inLineComment = false;
+                masked += current;
+            } else {
+                masked += current === "\r" ? "\r" : " ";
+            }
+            index += 1;
+            continue;
+        }
+
+        if (inBlockComment) {
+            if (current === "*" && next === "/") {
+                masked += "  ";
+                index += 2;
+                inBlockComment = false;
+                continue;
+            }
+            masked += current === "\n" || current === "\r" ? current : " ";
+            index += 1;
+            continue;
+        }
+
+        if (inString || inChar) {
+            masked += current === "\n" || current === "\r" ? current : " ";
+            if (!escapeNext && ((inString && current === '"') || (inChar && current === "'"))) {
+                inString = false;
+                inChar = false;
+            }
+            escapeNext = !escapeNext && current === "\\";
+            index += 1;
+            continue;
+        }
+
+        if (current === "/" && next === "/") {
+            masked += "  ";
+            index += 2;
+            inLineComment = true;
+            continue;
+        }
+
+        if (current === "/" && next === "*") {
+            masked += "  ";
+            index += 2;
+            inBlockComment = true;
+            continue;
+        }
+
+        if (current === '"') {
+            masked += current;
+            inString = true;
+            index += 1;
+            escapeNext = false;
+            continue;
+        }
+
+        if (current === "'") {
+            masked += current;
+            inChar = true;
+            index += 1;
+            escapeNext = false;
+            continue;
+        }
+
+        masked += current;
+        index += 1;
+    }
+
+    return masked;
+}
+
 function findMatchingBrace(source, openIndex) {
     if (typeof source !== "string" || !source.length) {
         return -1;
@@ -97,18 +185,18 @@ function cleanSignature(signature) {
         .trim();
 }
 
-function extractClasses(source, regex) {
+function extractClasses(source, maskedSource, regex) {
     if (typeof source !== "string" || !source.trim()) {
         return [];
     }
     const classes = [];
     let match;
     while ((match = regex.exec(source))) {
-        const braceIndex = source.indexOf("{", match.index);
+        const braceIndex = maskedSource.indexOf("{", match.index);
         if (braceIndex === -1) {
             continue;
         }
-        const closingIndex = findMatchingBrace(source, braceIndex);
+        const closingIndex = findMatchingBrace(maskedSource, braceIndex);
         if (closingIndex === -1) {
             continue;
         }
@@ -123,32 +211,38 @@ function extractClasses(source, regex) {
     return classes;
 }
 
-function extractPublicClasses(source) {
-    const publicClasses = extractClasses(source, PUBLIC_CLASS_REGEX);
+function extractPublicClasses(source, maskedSource) {
+    const publicClasses = extractClasses(source, maskedSource, PUBLIC_CLASS_REGEX);
     if (publicClasses.length) {
         return publicClasses;
     }
-    return extractClasses(source, CLASS_REGEX);
+    return extractClasses(source, maskedSource, CLASS_REGEX);
 }
 
-function extractMethodsFromClass(source, classInfo) {
+function extractMethodsFromClass(source, maskedSource, classInfo) {
     const methods = [];
     if (!classInfo || typeof classInfo.bodyStart !== "number" || typeof classInfo.bodyEnd !== "number") {
         return methods;
     }
     const classBody = source.slice(classInfo.bodyStart, classInfo.bodyEnd);
-    const methodRegex = /(^|[\r\n])\s*(?:public|protected|private|static|final|native|synchronized|abstract|transient|volatile|strictfp|\s)+[\w<>\[\],\s]*?([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:throws [^{]+)?\{/gm;
+    const maskedClassBody = maskedSource.slice(classInfo.bodyStart, classInfo.bodyEnd);
+    const methodRegex = /(^|[\r\n])\s*(?:@[A-Za-z_$][\w$.]*(?:\([^)]*\))?\s*)*(?:(?:public|protected|private|static|final|native|synchronized|abstract|transient|volatile|strictfp)\s+)*[A-Za-z_$][\w$<>\[\],\s]*\s+([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:throws [^{]+)?\{/gm;
+    const controlKeywords = new Set(["if", "for", "while", "switch", "catch", "try", "do", "else", "case", "default"]);
     let match;
-    while ((match = methodRegex.exec(classBody))) {
-        const signatureStart = match.index;
-        const braceIndex = classBody.indexOf("{", match.index);
+    while ((match = methodRegex.exec(maskedClassBody))) {
+        const signatureStart = match.index + (match[1] ? match[1].length : 0);
+        const braceIndex = maskedClassBody.indexOf("{", match.index + (match[1] ? match[1].length : 0));
         if (braceIndex === -1) {
             continue;
         }
         const absoluteSignatureStart = classInfo.bodyStart + signatureStart;
         const absoluteBraceIndex = classInfo.bodyStart + braceIndex;
-        const absoluteEndIndex = findMatchingBrace(source, absoluteBraceIndex);
+        const absoluteEndIndex = findMatchingBrace(maskedSource, absoluteBraceIndex);
         if (absoluteEndIndex === -1) {
+            continue;
+        }
+        const methodName = match[2] || "";
+        if (controlKeywords.has(methodName)) {
             continue;
         }
         const block = source.slice(absoluteSignatureStart, absoluteEndIndex + 1).trim();
@@ -157,7 +251,7 @@ function extractMethodsFromClass(source, classInfo) {
         }
         methods.push({
             signature: cleanSignature(source.slice(absoluteSignatureStart, absoluteBraceIndex)),
-            methodName: match[2] || "",
+            methodName,
             block,
             startIndex: absoluteSignatureStart,
             endIndex: absoluteEndIndex
@@ -171,27 +265,32 @@ export function extractJavaMethodSegments(source) {
     if (typeof source !== "string" || !source.trim()) {
         return [];
     }
-    const classes = extractPublicClasses(source);
+    const maskedSource = maskNonCodeRegions(source);
+    const classes = extractPublicClasses(source, maskedSource);
     if (!classes.length) {
         return [];
     }
     const lineIndex = buildLineIndex(source);
     const segments = [];
     classes.forEach((classInfo) => {
-        const classMethods = extractMethodsFromClass(source, classInfo);
+        const classMethods = extractMethodsFromClass(source, maskedSource, classInfo);
         classMethods.forEach((method) => {
             const startLine = lineNumberForIndex(lineIndex, method.startIndex);
             const endLine = lineNumberForIndex(lineIndex, method.endIndex);
             const rawText = method.block;
-            const cleaned = sanitiseJavaSource(rawText);
             segments.push({
-                text: cleaned || rawText,
+                text: rawText,
                 rawText,
                 className: classInfo.className,
                 methodName: method.methodName,
                 methodSignature: method.signature,
                 label: `${classInfo.className || "UnknownClass"}::${method.methodName || method.signature || "(anonymous)"}`,
                 kind: "java_method",
+                codeLocationLabel: startLine
+                    ? endLine && endLine !== startLine
+                        ? `程式碼位置：第 ${startLine}-${endLine} 行`
+                        : `程式碼位置：第 ${startLine} 行`
+                    : "",
                 startLine,
                 endLine
             });

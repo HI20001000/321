@@ -4,7 +4,7 @@ import pool from "./lib/db.js";
 import { ensureSchema } from "./lib/ensureSchema.js";
 import { getDifyConfigSummary, partitionContent, requestDifyReport } from "./lib/difyClient.js";
 import { analyseSqlToReport, buildSqlReportPayload, isSqlPath } from "./lib/sqlAnalyzer.js";
-import { buildJavaSegments, isJavaPath, sanitiseJavaSource } from "./lib/javaProcessor.js";
+import { buildJavaSegments, isJavaPath } from "./lib/javaProcessor.js";
 
 const REPORT_DEBUG_LOGS = process.env.REPORT_DEBUG_LOGS === "true";
 
@@ -618,29 +618,6 @@ function buildJavaReportSnapshots(result, generatedAt) {
     };
 }
 
-function sanitiseCombinedReportJson(value) {
-    if (typeof value !== "string") {
-        return EMPTY_COMBINED_REPORT_JSON;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return EMPTY_COMBINED_REPORT_JSON;
-    }
-    try {
-        const parsed = JSON.parse(trimmed);
-        const summary = Array.isArray(parsed?.summary)
-            ? parsed.summary.filter((entry) => isPlainObject(entry)).map((entry) => clonePlainValue(entry))
-            : [];
-        const issues = Array.isArray(parsed?.issues)
-            ? parsed.issues.filter((entry) => isPlainObject(entry)).map((entry) => clonePlainValue(entry))
-            : [];
-        return JSON.stringify({ summary, issues }, null, 2);
-    } catch (error) {
-        console.warn("[reports] Failed to sanitise combined report JSON", error);
-        return EMPTY_COMBINED_REPORT_JSON;
-    }
-}
-
 function sanitiseIssuesJson(value) {
     if (typeof value !== "string") {
         return EMPTY_ISSUES_JSON;
@@ -796,7 +773,9 @@ function mapReportRow(row) {
         }
     }
 
-    const combinedReportJson = sanitiseCombinedReportJson(row.combined_report_json || "");
+    const combinedReportJson = typeof row.combined_report_json === "string"
+        ? row.combined_report_json
+        : EMPTY_COMBINED_REPORT_JSON;
     const staticReportJson = sanitiseIssuesJson(row.static_report_json || "");
     const aiReportJson = sanitiseIssuesJson(row.ai_report_json || "");
 
@@ -1327,11 +1306,8 @@ app.post("/api/reports/dify", async (req, res, next) => {
         }
 
         const javaFile = isJavaPath(path);
-        const cleanedJavaContent = javaFile ? sanitiseJavaSource(content) : content;
         const javaSegments = javaFile ? buildJavaSegments(content) : [];
-        const segments = javaSegments.length
-            ? javaSegments
-            : partitionContent(typeof cleanedJavaContent === "string" ? cleanedJavaContent : content);
+        const segments = javaSegments.length ? javaSegments : partitionContent(content);
         const summary = getDifyConfigSummary();
         if (REPORT_DEBUG_LOGS) {
             console.log(
@@ -1343,7 +1319,7 @@ app.post("/api/reports/dify", async (req, res, next) => {
         const result = await requestDifyReport({
             projectName: projectName || projectId,
             filePath: path,
-            content: cleanedJavaContent,
+            content,
             userId,
             segments,
             files
