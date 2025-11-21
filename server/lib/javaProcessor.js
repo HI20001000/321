@@ -183,15 +183,19 @@ export function extractJavaMethodSegments(source) {
             const startLine = lineNumberForIndex(lineIndex, method.startIndex);
             const endLine = lineNumberForIndex(lineIndex, method.endIndex);
             const rawText = method.block;
-            const cleaned = sanitiseJavaSource(rawText);
             segments.push({
-                text: cleaned || rawText,
+                text: rawText,
                 rawText,
                 className: classInfo.className,
                 methodName: method.methodName,
                 methodSignature: method.signature,
                 label: `${classInfo.className || "UnknownClass"}::${method.methodName || method.signature || "(anonymous)"}`,
                 kind: "java_method",
+                codeLocationLabel: startLine
+                    ? endLine && endLine !== startLine
+                        ? `程式碼位置：第 ${startLine}-${endLine} 行`
+                        : `程式碼位置：第 ${startLine} 行`
+                    : "",
                 startLine,
                 endLine
             });
