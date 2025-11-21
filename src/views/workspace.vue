@@ -5645,6 +5645,8 @@ body,
 .reportIssuesRow .codeLine--issue {
     background: rgba(248, 113, 113, 0.12);
     border-left-color: rgba(248, 113, 113, 0.65);
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 .codeLineNo--issue {
