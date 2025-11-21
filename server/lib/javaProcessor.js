@@ -137,11 +137,12 @@ function extractMethodsFromClass(source, classInfo) {
         return methods;
     }
     const classBody = source.slice(classInfo.bodyStart, classInfo.bodyEnd);
-    const methodRegex = /(^|[\r\n])\s*(?:public|protected|private|static|final|native|synchronized|abstract|transient|volatile|strictfp|\s)+[\w<>\[\],\s]*?([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:throws [^{]+)?\{/gm;
+    const methodRegex = /(^|[\r\n])\s*(?:@[A-Za-z_$][\w$.]*(?:\([^)]*\))?\s*)*(?:(?:public|protected|private|static|final|native|synchronized|abstract|transient|volatile|strictfp)\s+)*[A-Za-z_$][\w$<>\[\],\s]*\s+([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:throws [^{]+)?\{/gm;
+    const controlKeywords = new Set(["if", "for", "while", "switch", "catch", "try", "do", "else", "case", "default"]);
     let match;
     while ((match = methodRegex.exec(classBody))) {
-        const signatureStart = match.index;
-        const braceIndex = classBody.indexOf("{", match.index);
+        const signatureStart = match.index + (match[1] ? match[1].length : 0);
+        const braceIndex = classBody.indexOf("{", match.index + (match[1] ? match[1].length : 0));
         if (braceIndex === -1) {
             continue;
         }
@@ -151,13 +152,17 @@ function extractMethodsFromClass(source, classInfo) {
         if (absoluteEndIndex === -1) {
             continue;
         }
+        const methodName = match[2] || "";
+        if (controlKeywords.has(methodName)) {
+            continue;
+        }
         const block = source.slice(absoluteSignatureStart, absoluteEndIndex + 1).trim();
         if (!block) {
             continue;
         }
         methods.push({
             signature: cleanSignature(source.slice(absoluteSignatureStart, absoluteBraceIndex)),
-            methodName: match[2] || "",
+            methodName,
             block,
             startIndex: absoluteSignatureStart,
             endIndex: absoluteEndIndex
