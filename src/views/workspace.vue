@@ -2322,9 +2322,13 @@ const buildIssueFixHtml = (issues) => {
     issues.forEach((issue) => {
         const recommendations = collectRecommendations(issue);
         if (recommendations.length) {
-            recommendations.forEach((text) => {
-                rows.push(`<div class="reportIssueInlineRow">${escapeHtml(text)}</div>`);
-            });
+            const items = recommendations
+                .map(
+                    (text) =>
+                        `<li class="reportIssueInlineRow reportIssueInlineRecommendation">${escapeHtml(text)}</li>`
+                )
+                .join("");
+            rows.push(`<ul class="reportIssueInlineRecommendationList">${items}</ul>`);
         } else {
             rows.push('<div class="reportIssueInlineRow reportIssueInlineRow--empty">&nbsp;</div>');
         }
@@ -5725,7 +5729,7 @@ body,
     gap: 8px;
     align-items: flex-start;
     margin: 0 0 6px;
-    color: #0f172a;
+    color: #1e3a8a;
 }
 
 .reportIssueInlineRow:last-child {
@@ -5735,6 +5739,22 @@ body,
 .reportIssueInlineRow--empty {
     color: #475569;
     font-style: italic;
+}
+
+.reportIssueInlineRecommendationList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    padding-left: 0;
+    margin: 0 0 8px;
+    list-style: none;
+}
+
+.reportIssueInlineRecommendation {
+    background: #e0f2fe;
+    border-radius: 8px;
+    padding: 8px 10px;
 }
 
 .reportIssueInlineList {
@@ -5758,9 +5778,10 @@ body,
 }
 
 .reportIssueInlineTuple {
-    display: grid;
-    grid-template-columns: minmax(80px, 1fr) minmax(120px, 1fr) 2fr;
+    display: flex;
+    align-items: flex-start;
     gap: 8px;
+    width: 100%;
     padding: 6px 8px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.6);
@@ -5772,6 +5793,7 @@ body,
     font-size: 12px;
     line-height: 1.5;
     word-break: break-word;
+    text-align: left;
 }
 
 .reportIssueInlineTupleItem--severity {
@@ -5781,24 +5803,26 @@ body,
 
 .reportIssueInlineTupleItem--rule {
     font-weight: 600;
-    color: #1d4ed8;
+    color: #9a3412;
 }
 
 .reportIssueInlineTupleItem--message {
     color: #0b1120;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .reportIssueInlineCode {
     width: 100%;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
     border-radius: 8px;
     padding: 10px 12px;
     font-family: var(--code-font, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
     font-size: 13px;
     line-height: 1.55;
     white-space: pre-wrap;
-    color: #0f172a;
+    color: #1d4ed8;
     background-clip: padding-box;
 }
 
@@ -5864,8 +5888,8 @@ body,
 .reportIssueInlineLine {
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.25);
-    color: #cbd5f5;
+    background: rgba(154, 52, 18, 0.14);
+    color: #9a3412;
     font-weight: 600;
 }
 
