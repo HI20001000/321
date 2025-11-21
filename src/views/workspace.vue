@@ -358,6 +358,10 @@ const activeReportDetails = computed(() => {
     };
 
     const aggregatedReportsSources = [];
+    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
+    if (combinedReportJson) {
+        aggregatedReportsSources.push(combinedReportJson);
+    }
     if (report.state?.analysis?.aggregatedReports) {
         aggregatedReportsSources.push(report.state.analysis.aggregatedReports);
     }
@@ -366,10 +370,6 @@ const activeReportDetails = computed(() => {
     }
     if (aggregatedPayload?.aggregatedReports) {
         aggregatedReportsSources.push(aggregatedPayload.aggregatedReports);
-    }
-    const combinedReportJson = normaliseJsonContent(report.state?.combinedReportJson);
-    if (combinedReportJson) {
-        aggregatedReportsSources.push(combinedReportJson);
     }
 
     let aggregatedReports = null;
@@ -1205,8 +1205,12 @@ function normaliseIssueLineMeta(meta) {
         return { start: null, end: null, label: "" };
     }
 
-    const start = normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from);
-    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to);
+    const parsedFromRange =
+        parseLineRangeValue(meta.line ?? meta.lineRange ?? meta.range ?? meta.label) || null;
+
+    const start =
+        normaliseLineEndpoint(meta.start ?? meta.begin ?? meta.from) ?? parsedFromRange?.start ?? null;
+    const end = normaliseLineEndpoint(meta.end ?? meta.finish ?? meta.to) ?? parsedFromRange?.end ?? null;
     const hasStart = start !== null;
     const hasEnd = end !== null;
     const safeStart = hasStart ? start : hasEnd ? end : null;
