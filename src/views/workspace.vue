@@ -41,7 +41,8 @@ import {
 import { buildProjectPreviewIndex } from "../scripts/projectPreview/index.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
-import ProjectPreviewPanel from "../compnenets/ProjectPreviewPanel.vue";
+import ProjectPreviewPanel from "../components/projectpreview/ProjectPreviewPanel.vue";
+import SettingsPanel from "../components/setting/SettingsPanel.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
     eager: true,
@@ -2915,8 +2916,8 @@ function toggleSettingsTool() {
     isReportTreeCollapsed.value = true;
 }
 
-function setSettingsTab(tab) {
-    settingsTab.value = tab;
+function handleSettingsSave(payload) {
+    console.log("[Settings] Saved configuration", payload);
 }
 
 function normaliseProjectId(projectId) {
@@ -4454,102 +4455,7 @@ onBeforeUnmount(() => {
                 :class="{ 'workSpace--reports': isReportToolActive, 'workSpace--settings': isSettingsToolActive }"
             >
                 <template v-if="isSettingsToolActive">
-                    <div class="panelHeader">設定工作區</div>
-                    <div class="settingsTabs" role="tablist" aria-label="設定分頁">
-                        <button
-                            v-for="tab in [
-                                { key: 'aiReview', label: 'AI審查配置' },
-                                { key: 'ruleEngine', label: '規則引擎配置' }
-                            ]"
-                            :key="tab.key"
-                            type="button"
-                            class="settingsTabBtn"
-                            :class="{ active: settingsTab === tab.key }"
-                            role="tab"
-                            :aria-selected="settingsTab === tab.key"
-                            @click="setSettingsTab(tab.key)"
-                        >
-                            {{ tab.label }}
-                        </button>
-                    </div>
-
-                    <section v-if="settingsTab === 'aiReview'" class="settingsSection">
-                        <p class="settingsDescription">
-                            配置代碼塊切分邏輯：SQL 與 Java 都會拆分成代碼段並送往 Dify，調整下方段數即可一次輸入多個區塊
-                            （例如設為 3 代表同時提交三個區塊）。
-                        </p>
-                        <div class="settingsGrid">
-                            <div class="settingCard">
-                                <div class="settingLabel">SQL 代碼段數</div>
-                                <input
-                                    v-model.number="aiChunkConfig.sqlChunkCount"
-                                    type="number"
-                                    min="1"
-                                    class="settingInput"
-                                    aria-label="SQL 代碼段數"
-                                />
-                                <p class="settingHint">用於 Dify 的 SQL 區塊數，確保長查詢能被完整拆解。</p>
-                            </div>
-                            <div class="settingCard">
-                                <div class="settingLabel">Java 代碼段數</div>
-                                <input
-                                    v-model.number="aiChunkConfig.javaChunkCount"
-                                    type="number"
-                                    min="1"
-                                    class="settingInput"
-                                    aria-label="Java 代碼段數"
-                                />
-                                <p class="settingHint">用於 Dify 的 Java 區塊數，便於一次處理多個方法或類。</p>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section v-else class="settingsSection">
-                        <div class="settingsDescription">
-                            規則引擎配置：分別維護 SQL 與 Java 類型的檔案規則，支持調整規則 ID、嚴重度、描述與啟用狀態。
-                        </div>
-                        <div class="ruleEngineGrid">
-                            <div v-for="(rules, key) in ruleEngineConfigs" :key="key" class="ruleEngineCard">
-                                <div class="ruleEngineHeader">
-                                    <h4>{{ key === 'sql' ? 'SQL 文件規則' : 'Java 文件規則' }}</h4>
-                                    <p class="ruleEngineSub">
-                                        針對 {{ key.toUpperCase() }} 檔案的規則參數（Rule ID、severity_levels、規則描述、是否啟用）。
-                                    </p>
-                                </div>
-                                <div class="ruleTableWrapper themed-scrollbar">
-                                    <table class="ruleTable">
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">規則 ID</th>
-                                                <th scope="col">severity_levels</th>
-                                                <th scope="col">規則描述</th>
-                                                <th scope="col">是否啟用</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr v-for="(rule, index) in rules" :key="`${key}-${index}`">
-                                                <td>
-                                                    <input v-model="rule.id" type="text" class="settingInput" />
-                                                </td>
-                                                <td>
-                                                    <input v-model="rule.severityLevels" type="text" class="settingInput" />
-                                                </td>
-                                                <td>
-                                                    <textarea v-model="rule.description" rows="2" class="settingTextarea"></textarea>
-                                                </td>
-                                                <td class="ruleEnabledCell">
-                                                    <label class="switchLabel">
-                                                        <input v-model="rule.enabled" type="checkbox" />
-                                                        <span>{{ rule.enabled ? '啟用' : '停用' }}</span>
-                                                    </label>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
+                    <SettingsPanel @save="handleSettingsSave" />
                 </template>
                 <template v-else-if="isReportToolActive">
                     <div class="panelHeader">報告檢視</div>
