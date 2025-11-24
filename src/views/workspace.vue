@@ -38,8 +38,10 @@ import {
     normaliseAiReviewPayload,
     parseReportJson
 } from "../scripts/reports/shared.js";
+import { buildProjectPreviewIndex } from "../scripts/projectPreview/index.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
+import ProjectPreviewPanel from "../compnenets/ProjectPreviewPanel.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
     eager: true,
@@ -132,6 +134,12 @@ const previewLineItems = computed(() => {
 const middlePaneWidth = ref(360);
 const mainContentRef = ref(null);
 const codeScrollRef = ref(null);
+const reportViewerContentRef = ref(null);
+const reportIssuesContentRef = ref(null);
+const pendingReportIssueJump = ref(null);
+let pendingReportIssueJumpTimer = null;
+const REPORT_ISSUE_JUMP_MAX_ATTEMPTS = 40;
+const REPORT_ISSUE_JUMP_INTERVAL = 180;
 const codeSelection = ref(null);
 let pointerDownInCode = false;
 let shouldClearAfterPointerClick = false;
@@ -177,10 +185,15 @@ const handleToggleDmlSection = (event) => {
 };
 const isProjectToolActive = computed(() => activeRailTool.value === "projects");
 const isReportToolActive = computed(() => activeRailTool.value === "reports");
+const isPreviewToolActive = computed(() => activeRailTool.value === "preview");
 const shouldPrepareReportTrees = computed(
-    () => isProjectToolActive.value || isReportToolActive.value
+    () => isProjectToolActive.value || isReportToolActive.value || isPreviewToolActive.value
 );
-const panelMode = computed(() => (isReportToolActive.value ? "reports" : "projects"));
+const panelMode = computed(() => {
+    if (isReportToolActive.value) return "reports";
+    if (isPreviewToolActive.value) return "preview";
+    return "projects";
+});
 const reportProjectEntries = computed(() => {
     const list = Array.isArray(projects.value) ? projects.value : [];
     return list.map((project) => {
@@ -267,6 +280,18 @@ const readyReports = computed(() => {
 const projectIssueTotals = computed(() =>
     collectIssueSummaryTotals(reportStates, { parseKey: parseReportKey })
 );
+const projectPreviewEntries = computed(() =>
+    buildProjectPreviewIndex({
+        projects: projects.value,
+        reportStates,
+        parseKey: parseReportKey
+    })
+);
+const isProjectPreviewLoading = computed(() => {
+    const caches = Object.values(reportTreeCache);
+    if (!caches.length) return false;
+    return caches.some((entry) => entry.loading || entry.hydratingReports);
+});
 const hasReadyReports = computed(() => readyReports.value.length > 0);
 const activeReport = computed(() => {
     const target = activeReportTarget.value;
@@ -2741,6 +2766,22 @@ watch(
     }
 );
 
+watch(
+    [pendingReportIssueJump, activeReport, reportIssueLines],
+    () => {
+        focusPendingReportIssue();
+    },
+    { deep: true, flush: "post" }
+);
+
+watch(
+    [reportIssuesContentRef, reportViewerContentRef],
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
 async function ensureActiveProject() {
     const list = Array.isArray(projects.value) ? projects.value : [];
     if (!list.length) return;
@@ -2807,6 +2848,12 @@ function toggleProjectTool() {
 function toggleReportTool() {
     if (isReportToolActive.value) return;
     activeRailTool.value = "reports";
+    isReportTreeCollapsed.value = true;
+}
+
+function togglePreviewTool() {
+    if (isPreviewToolActive.value) return;
+    activeRailTool.value = "preview";
     isReportTreeCollapsed.value = true;
 }
 
@@ -3349,6 +3396,176 @@ function selectReport(projectId, path) {
         projectId: normaliseProjectId(projectId),
         path
     };
+}
+
+function resolveReportIssuesContainer() {
+    const containers = [];
+
+    if (reportViewerContentRef.value) {
+        containers.push(reportViewerContentRef.value);
+    }
+
+    if (typeof document !== "undefined") {
+        const docViewer = document.querySelector(".reportViewerContent");
+        if (docViewer && !containers.includes(docViewer)) {
+            containers.push(docViewer);
+        }
+    }
+
+    if (reportIssuesContentRef.value) {
+        containers.push(reportIssuesContentRef.value);
+    }
+
+    if (typeof document !== "undefined") {
+        const documentContainer = document.querySelector(".reportIssuesContent");
+        if (documentContainer && !containers.includes(documentContainer)) {
+            containers.push(documentContainer);
+        }
+    }
+
+    for (const el of containers) {
+        if (el && el.scrollHeight - el.clientHeight > 4) {
+            return el;
+        }
+    }
+
+    return containers[0] || null;
+}
+
+function findReportIssueLineElement(lineStart, lineEnd) {
+    const selectors = [];
+    if (Number.isFinite(lineStart)) {
+        const startLine = Math.max(1, Math.floor(lineStart));
+        selectors.push(`.codeLine[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta[data-line="${startLine}"]`);
+        selectors.push(`.codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta .codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${startLine}"]`);
+    }
+    if (Number.isFinite(lineEnd) && lineEnd !== lineStart) {
+        const endLine = Math.max(1, Math.floor(lineEnd));
+        selectors.push(`.codeLine[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--meta[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--fixMeta[data-line="${endLine}"]`);
+        selectors.push(`.codeLineNo[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--meta .codeLineNo[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${endLine}"]`);
+    }
+
+    const roots = [];
+    if (reportViewerContentRef.value) roots.push(reportViewerContentRef.value);
+    if (reportIssuesContentRef.value) roots.push(reportIssuesContentRef.value);
+    if (typeof document !== "undefined") roots.push(document);
+
+    for (const root of roots) {
+        for (const selector of selectors) {
+            const found = root.querySelector(selector);
+            if (found) {
+                return found.closest(".codeLine") || found;
+            }
+        }
+    }
+    return null;
+}
+
+function scrollReportIssuesToLine(targetEl, containerEl) {
+    if (!targetEl || !containerEl) return false;
+
+    const lineEl = targetEl.closest(".codeLine") || targetEl;
+    const containerRect = containerEl.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const workspaceRect =
+        typeof document !== "undefined"
+            ? document.querySelector(".workspace--reports")?.getBoundingClientRect() || null
+            : null;
+    const visibleTop = workspaceRect
+        ? Math.max(containerRect.top, workspaceRect.top)
+        : containerRect.top;
+    const visibleBottom = workspaceRect
+        ? Math.min(containerRect.bottom, workspaceRect.bottom)
+        : containerRect.bottom;
+    const visibleHeight = Math.max(0, visibleBottom - visibleTop) || containerEl.clientHeight;
+    const offsetTop = lineRect.top - containerRect.top + containerEl.scrollTop;
+    const desiredTop = Math.max(0, offsetTop - visibleHeight + lineRect.height);
+
+    containerEl.scrollTo({ top: desiredTop, behavior: "smooth" });
+    return true;
+}
+
+function focusPendingReportIssue() {
+    if (!pendingReportIssueJump.value) return;
+    schedulePendingReportIssueJump(0);
+}
+
+function schedulePendingReportIssueJump(delay = REPORT_ISSUE_JUMP_INTERVAL) {
+    if (pendingReportIssueJumpTimer) {
+        clearTimeout(pendingReportIssueJumpTimer);
+    }
+    pendingReportIssueJumpTimer = setTimeout(() => {
+        pendingReportIssueJumpTimer = null;
+        attemptPendingReportIssueJump();
+    }, delay);
+}
+
+function attemptPendingReportIssueJump() {
+    const pending = pendingReportIssueJump.value;
+    if (!pending) return;
+
+    const active = activeReport.value;
+    const activeProjectId = normaliseProjectId(active?.project?.id);
+    if (!active || activeProjectId !== pending.projectId || active.path !== pending.path) {
+        schedulePendingReportIssueJump();
+        return;
+    }
+
+    if (!reportIssueLines.value.length) {
+        schedulePendingReportIssueJump();
+        return;
+    }
+
+    const container = resolveReportIssuesContainer();
+    const lineEl = findReportIssueLineElement(pending.lineStart, pending.lineEnd);
+    if (container && lineEl && scrollReportIssuesToLine(lineEl, container)) {
+        pendingReportIssueJump.value = null;
+        return;
+    }
+
+    if ((pending.attempts ?? 0) + 1 >= REPORT_ISSUE_JUMP_MAX_ATTEMPTS) {
+        pendingReportIssueJump.value = null;
+        return;
+    }
+
+    pendingReportIssueJump.value = {
+        ...pending,
+        attempts: (pending.attempts ?? 0) + 1
+    };
+    schedulePendingReportIssueJump();
+}
+
+function handlePreviewIssueSelect(payload) {
+    const projectId = normaliseProjectId(payload?.projectId);
+    const path = typeof payload?.path === "string" ? payload.path : "";
+    const lineStart = Number(payload?.lineStart ?? payload?.lineEnd ?? NaN);
+    const lineEnd = Number(payload?.lineEnd ?? payload?.lineStart ?? NaN);
+
+    if (!projectId || !path || !Number.isFinite(lineStart)) {
+        return;
+    }
+
+    activeRailTool.value = "reports";
+    isReportTreeCollapsed.value = true;
+    selectReport(projectId, path);
+
+    pendingReportIssueJump.value = {
+        projectId,
+        path,
+        lineStart: Math.max(1, Math.floor(lineStart)),
+        lineEnd: Number.isFinite(lineEnd) ? Math.max(1, Math.floor(lineEnd)) : Math.max(1, Math.floor(lineStart)),
+        attempts: 0
+    };
+
+    schedulePendingReportIssueJump(0);
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
@@ -4025,6 +4242,9 @@ onBeforeUnmount(() => {
     window.removeEventListener("resize", clampReportSidebarWidth);
     stopChatDrag();
     stopChatResize();
+    if (pendingReportIssueJumpTimer) {
+        clearTimeout(pendingReportIssueJumpTimer);
+    }
     if (typeof document !== "undefined") {
         document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
         document.removeEventListener("selectionchange", handleDocumentSelectionChange);
@@ -4075,6 +4295,23 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="toolColumn_btn"
+                    :class="{ active: isPreviewToolActive }"
+                    @click="togglePreviewTool"
+                    :aria-pressed="isPreviewToolActive"
+                    title="報告預覽"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            d="M3 12c2.5-4 5.7-6 9-6s6.5 2 9 6c-2.5 4-5.7 6-9 6s-6.5-2-9-6Z"
+                            fill="currentColor"
+                            opacity="0.16"
+                        />
+                        <circle cx="12" cy="12" r="3.5" fill="currentColor" />
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="toolColumn_btn"
                     :class="{ active: isReportToolActive }"
                     @click="toggleReportTool"
                     :aria-pressed="isReportToolActive"
@@ -4115,7 +4352,7 @@ onBeforeUnmount(() => {
                 :on-delete-project="deleteProject"
                 :is-tree-collapsed="isTreeCollapsed"
                 :is-report-tree-collapsed="isReportTreeCollapsed"
-                :show-content="isProjectToolActive || isReportToolActive"
+                :show-content="isProjectToolActive || isReportToolActive || isPreviewToolActive"
                 :tree="tree"
                 :active-tree-path="activeTreePath"
                 :is-loading-tree="isLoadingTree"
@@ -4124,7 +4361,16 @@ onBeforeUnmount(() => {
                 :report-config="reportPanelConfig"
                 :toggle-report-tree="toggleReportTreeCollapsed"
                 @resize-start="startPreviewResize"
-            />
+            >
+                <template v-if="isPreviewToolActive" #default>
+                    <ProjectPreviewPanel
+                        :previews="projectPreviewEntries"
+                        :loading="isProjectPreviewLoading"
+                        :compact="true"
+                        @select-issue="handlePreviewIssueSelect"
+                    />
+                </template>
+            </PanelRail>
 
             <section class="workSpace" :class="{ 'workSpace--reports': isReportToolActive }">
                 <template v-if="isReportToolActive">
@@ -4133,6 +4379,7 @@ onBeforeUnmount(() => {
                         <div
                             class="reportViewerContent"
                             :class="{ 'reportViewerContent--loading': isActiveReportProcessing }"
+                            ref="reportViewerContentRef"
                             :aria-busy="isActiveReportProcessing ? 'true' : 'false'"
                         >
                             <div
@@ -4397,7 +4644,7 @@ onBeforeUnmount(() => {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="reportIssuesContent">
+                                            <div class="reportIssuesContent" ref="reportIssuesContentRef">
                                                 <template v-if="activeReportDetails">
                                                     <div
                                                         v-if="activeReport.state.sourceLoading"
@@ -4542,7 +4789,15 @@ onBeforeUnmount(() => {
                             </template>
                         </div>
                     </template>
-                    <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+            <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+        </template>
+        <template v-else-if="isPreviewToolActive">
+            <ProjectPreviewPanel
+                :previews="projectPreviewEntries"
+                :loading="isProjectPreviewLoading"
+                :show-summary="true"
+                @select-issue="handlePreviewIssueSelect"
+                    />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">
                     <div class="pvHeader">
@@ -4925,7 +5180,8 @@ body,
     box-sizing: border-box;
     min-width: 0;
     position: relative;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .reportViewerContent--loading > :not(.reportViewerProcessingOverlay) {
@@ -5527,9 +5783,9 @@ body,
     gap: 12px;
     border: 1px solid rgba(148, 163, 184, 0.28);
     border-radius: 8px;
-    padding: 12px;
+    padding: 12px 12px 0;
     background: rgba(15, 23, 42, 0.02);
-    overflow: visible;
+    overflow: auto;
 }
 
 .reportIssuesHeader h4 {
@@ -5633,12 +5889,12 @@ body,
 .reportIssuesRow .reportRowContent.codeScroll {
     display: flex;
     flex-direction: column;
-    overflow: visible;
+    overflow: auto;
     max-height: none;
 }
 
 .reportIssuesRow .codeEditor {
-    padding: 4px 0;
+    padding: 4px 0 0;
 }
 
 .reportIssuesRow .codeLine {
