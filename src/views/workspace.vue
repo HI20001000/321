@@ -3450,15 +3450,6 @@ function resolveReportIssuesContainer() {
 
 function findReportIssueLineElement(lineStart, lineEnd) {
     const selectors = [];
-    if (Number.isFinite(lineStart)) {
-        const startLine = Math.max(1, Math.floor(lineStart));
-        selectors.push(`.codeLine[data-line="${startLine}"]`);
-        selectors.push(`.codeLine--meta[data-line="${startLine}"]`);
-        selectors.push(`.codeLine--fixMeta[data-line="${startLine}"]`);
-        selectors.push(`.codeLineNo[data-line="${startLine}"]`);
-        selectors.push(`.codeLine--meta .codeLineNo[data-line="${startLine}"]`);
-        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${startLine}"]`);
-    }
     if (Number.isFinite(lineEnd) && lineEnd !== lineStart) {
         const endLine = Math.max(1, Math.floor(lineEnd));
         selectors.push(`.codeLine[data-line="${endLine}"]`);
@@ -3467,6 +3458,15 @@ function findReportIssueLineElement(lineStart, lineEnd) {
         selectors.push(`.codeLineNo[data-line="${endLine}"]`);
         selectors.push(`.codeLine--meta .codeLineNo[data-line="${endLine}"]`);
         selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${endLine}"]`);
+    }
+    if (Number.isFinite(lineStart)) {
+        const startLine = Math.max(1, Math.floor(lineStart));
+        selectors.push(`.codeLine[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta[data-line="${startLine}"]`);
+        selectors.push(`.codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta .codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${startLine}"]`);
     }
 
     const roots = [];
