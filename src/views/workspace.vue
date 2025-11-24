@@ -3441,17 +3441,35 @@ async function focusPendingReportIssue() {
 
     await nextTick();
 
-    const container = reportViewerContentRef.value || reportIssuesContentRef.value;
-    if (!container) return;
+    const viewerRoot =
+        reportViewerContentRef.value ||
+        reportIssuesContentRef.value ||
+        document.querySelector(".reportViewerContent") ||
+        document.querySelector(".reportIssuesContent") ||
+        null;
+
+    if (!viewerRoot) return;
+
+    const issuesContainer =
+        viewerRoot.querySelector?.(".reportIssuesContent") ||
+        document.querySelector(".reportIssuesContent") ||
+        viewerRoot;
 
     const scrollContainer =
-        container.querySelector(".reportIssuesRow .reportRowContent.codeScroll") || container;
+        issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
+        issuesContainer ||
+        viewerRoot;
 
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
-    const lineElement =
-        container.querySelector(`[data-line="${targetLine}"]`) ||
-        container.querySelector(`[data-line="${targetLine + 1}"]`) ||
-        container.querySelector(`[data-line="${targetLine - 1}"]`);
+    const lineSearchRoots = [issuesContainer, viewerRoot, document];
+    const lineElement = lineSearchRoots.reduce((found, rootEl) => {
+        if (found || !rootEl?.querySelector) return found;
+        return (
+            rootEl.querySelector(`[data-line="${targetLine}"]`) ||
+            rootEl.querySelector(`[data-line="${targetLine + 1}"]`) ||
+            rootEl.querySelector(`[data-line="${targetLine - 1}"]`)
+        );
+    }, null);
 
     const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
 
