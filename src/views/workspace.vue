@@ -4779,7 +4779,15 @@ onBeforeUnmount(() => {
                             </template>
                         </div>
                     </template>
-                    <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+            <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+        </template>
+        <template v-else-if="isPreviewToolActive">
+            <ProjectPreviewPanel
+                :previews="projectPreviewEntries"
+                :loading="isProjectPreviewLoading"
+                :show-summary="true"
+                @select-issue="handlePreviewIssueSelect"
+                    />
                 </template>
                 <template v-else-if="isPreviewToolActive">
                     <div class="panelHeader">報告預覽</div>
