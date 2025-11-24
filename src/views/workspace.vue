@@ -2782,6 +2782,22 @@ watch(
     }
 );
 
+watch(
+    [pendingReportIssueJump, activeReport, reportIssueLines],
+    () => {
+        focusPendingReportIssue();
+    },
+    { deep: true, flush: "post" }
+);
+
+watch(
+    [reportIssuesContentRef, reportViewerContentRef],
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
 async function ensureActiveProject() {
     const list = Array.isArray(projects.value) ? projects.value : [];
     if (!list.length) return;
@@ -3486,6 +3502,11 @@ function scrollReportIssuesToLine(targetEl, containerEl) {
 
     containerEl.scrollTo({ top: desiredTop, behavior: "smooth" });
     return true;
+}
+
+function focusPendingReportIssue() {
+    if (!pendingReportIssueJump.value) return;
+    schedulePendingReportIssueJump(0);
 }
 
 function schedulePendingReportIssueJump(delay = REPORT_ISSUE_JUMP_INTERVAL) {
@@ -4787,15 +4808,6 @@ onBeforeUnmount(() => {
                 :loading="isProjectPreviewLoading"
                 :show-summary="true"
                 @select-issue="handlePreviewIssueSelect"
-                    />
-                </template>
-                <template v-else-if="isPreviewToolActive">
-                    <div class="panelHeader">報告預覽</div>
-                    <ProjectPreviewPanel
-                        :previews="projectPreviewEntries"
-                        :loading="isProjectPreviewLoading"
-                        :show-summary="true"
-                        @select-issue="handlePreviewIssueSelect"
                     />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">
