@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
     previews: {
@@ -23,6 +23,24 @@ const props = defineProps({
 const emit = defineEmits(["select-issue"]);
 
 const hasPreviews = computed(() => (props.previews || []).length > 0);
+const expandedProjects = ref(new Set());
+
+function isProjectExpanded(projectId) {
+    const key = projectId === null || projectId === undefined ? "" : String(projectId);
+    return expandedProjects.value.has(key);
+}
+
+function toggleProject(projectId) {
+    const key = projectId === null || projectId === undefined ? "" : String(projectId);
+    if (!key) return;
+    const next = new Set(expandedProjects.value);
+    if (next.has(key)) {
+        next.delete(key);
+    } else {
+        next.add(key);
+    }
+    expandedProjects.value = next;
+}
 
 function handleIssueSelect(projectId, path, issue) {
     emit("select-issue", {
@@ -46,13 +64,24 @@ function handleIssueSelect(projectId, path, issue) {
                 :class="{ 'previewProjectItem--compact': compact }"
             >
                 <header class="previewProjectHeader">
+                    <button
+                        type="button"
+                        class="previewProjectToggle"
+                        :aria-expanded="isProjectExpanded(entry.project.id) ? 'true' : 'false'"
+                        @click="toggleProject(entry.project.id)"
+                        :title="isProjectExpanded(entry.project.id) ? '收起預覽' : '展開預覽'"
+                    >
+                        <span class="previewProjectCaret" :class="{ 'previewProjectCaret--open': isProjectExpanded(entry.project.id) }">
+                            ▸
+                        </span>
+                    </button>
                     <div class="previewProjectMeta">
                         <div class="previewProjectName" :title="entry.project.name">{{ entry.project.name }}</div>
                         <p class="previewProjectId">{{ entry.project.id }}</p>
                     </div>
                     <span class="previewProjectBadge">問題 {{ entry.issueCount }}</span>
                 </header>
-                <ol class="previewReportList">
+                <ol v-if="isProjectExpanded(entry.project.id)" class="previewReportList">
                     <li v-for="report in entry.reports" :key="`${entry.project.id}-${report.path}`" class="previewReportItem">
                         <div class="previewReportPath" :title="report.path">{{ report.path }}</div>
                         <ul class="previewIssueList">
@@ -128,6 +157,37 @@ function handleIssueSelect(projectId, path, issue) {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.previewProjectToggle {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    background: var(--panel-surface-alt);
+    color: var(--panel-heading);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.previewProjectToggle:hover {
+    background: var(--panel-accent-soft);
+    border-color: var(--panel-border-strong);
+    transform: translateY(-1px);
+}
+
+.previewProjectCaret {
+    display: inline-block;
+    transform: rotate(0deg);
+    transition: transform 0.2s ease;
+}
+
+.previewProjectCaret--open {
+    transform: rotate(90deg);
 }
 
 .previewProjectMeta {

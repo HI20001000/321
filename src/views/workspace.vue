@@ -3390,7 +3390,9 @@ async function handlePreviewIssueSelect(payload) {
         await hydrateReportsForProject(projectId);
     }
 
-    toggleReportTool();
+    await openProjectFileFromReportTree(projectId, path);
+    activeRailTool.value = "projects";
+    activeReportTarget.value = null;
 
     const issue = payload?.issue || {};
     const startLine = Number(issue.lineStart);
@@ -3413,7 +3415,6 @@ async function handlePreviewIssueSelect(payload) {
         codeSelection.value = null;
     }
 
-    activeReportTarget.value = { projectId, path };
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
