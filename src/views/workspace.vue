@@ -3443,14 +3443,30 @@ async function focusPendingReportIssue() {
     const container = reportIssuesContentRef.value;
     if (!container) return;
 
+    const scrollContainer =
+        container.querySelector(".reportIssuesRow .reportRowContent.codeScroll") || container;
+
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
     const lineElement =
         container.querySelector(`[data-line="${targetLine}"]`) ||
         container.querySelector(`[data-line="${targetLine + 1}"]`) ||
         container.querySelector(`[data-line="${targetLine - 1}"]`);
 
+    const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
+
+    if (focusElement && typeof scrollContainer.scrollTo === "function") {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const targetRect = focusElement.getBoundingClientRect();
+        const targetBottomWithinContainer =
+            targetRect.bottom - containerRect.top + scrollContainer.scrollTop;
+        const nextScrollTop = Math.max(0, targetBottomWithinContainer - scrollContainer.clientHeight);
+        scrollContainer.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
     if (lineElement && typeof lineElement.scrollIntoView === "function") {
-        lineElement.scrollIntoView({ block: "center", behavior: "smooth" });
+        lineElement.scrollIntoView({ block: "end", behavior: "smooth" });
         pendingReportIssueFocus.value = null;
     }
 }

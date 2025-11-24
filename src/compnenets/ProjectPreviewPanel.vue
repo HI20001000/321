@@ -96,11 +96,11 @@ function handleIssueSelect(projectId, path, issue) {
                                     @click="handleIssueSelect(entry.project.id, report.path, issue)"
                                 >
                                     <div class="previewIssueTitleGroup">
-                                        <span class="previewIssueTitle">{{ issue.title }}</span>
                                         <span v-if="issue.severity" class="previewIssueSeverity">{{ issue.severity }}</span>
                                         <span v-if="issue.issueCount !== null && issue.issueCount !== undefined" class="previewIssueCount">
                                             問題 {{ issue.issueCount }}
                                         </span>
+                                        <span class="previewIssueTitle">{{ issue.title }}</span>
                                     </div>
                                     <span v-if="issue.lineLabel" class="previewIssueLine">{{ issue.lineLabel }}</span>
                                 </button>
