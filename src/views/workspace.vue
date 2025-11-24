@@ -38,8 +38,10 @@ import {
     normaliseAiReviewPayload,
     parseReportJson
 } from "../scripts/reports/shared.js";
+import { buildProjectPreviewIndex } from "../scripts/projectPreview/index.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
+import ProjectPreviewPanel from "../compnenets/ProjectPreviewPanel.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
     eager: true,
@@ -177,10 +179,15 @@ const handleToggleDmlSection = (event) => {
 };
 const isProjectToolActive = computed(() => activeRailTool.value === "projects");
 const isReportToolActive = computed(() => activeRailTool.value === "reports");
+const isPreviewToolActive = computed(() => activeRailTool.value === "preview");
 const shouldPrepareReportTrees = computed(
-    () => isProjectToolActive.value || isReportToolActive.value
+    () => isProjectToolActive.value || isReportToolActive.value || isPreviewToolActive.value
 );
-const panelMode = computed(() => (isReportToolActive.value ? "reports" : "projects"));
+const panelMode = computed(() => {
+    if (isReportToolActive.value) return "reports";
+    if (isPreviewToolActive.value) return "preview";
+    return "projects";
+});
 const reportProjectEntries = computed(() => {
     const list = Array.isArray(projects.value) ? projects.value : [];
     return list.map((project) => {
@@ -267,6 +274,18 @@ const readyReports = computed(() => {
 const projectIssueTotals = computed(() =>
     collectIssueSummaryTotals(reportStates, { parseKey: parseReportKey })
 );
+const projectPreviewEntries = computed(() =>
+    buildProjectPreviewIndex({
+        projects: projects.value,
+        reportStates,
+        parseKey: parseReportKey
+    })
+);
+const isProjectPreviewLoading = computed(() => {
+    const caches = Object.values(reportTreeCache);
+    if (!caches.length) return false;
+    return caches.some((entry) => entry.loading || entry.hydratingReports);
+});
 const hasReadyReports = computed(() => readyReports.value.length > 0);
 const activeReport = computed(() => {
     const target = activeReportTarget.value;
@@ -2810,6 +2829,12 @@ function toggleReportTool() {
     isReportTreeCollapsed.value = true;
 }
 
+function togglePreviewTool() {
+    if (isPreviewToolActive.value) return;
+    activeRailTool.value = "preview";
+    isReportTreeCollapsed.value = true;
+}
+
 function normaliseProjectId(projectId) {
     if (projectId === null || projectId === undefined) return "";
     return String(projectId);
@@ -3349,6 +3374,46 @@ function selectReport(projectId, path) {
         projectId: normaliseProjectId(projectId),
         path
     };
+}
+
+async function handlePreviewIssueSelect(payload) {
+    const projectId = normaliseProjectId(payload?.projectId);
+    const path = payload?.path || payload?.issue?.path || "";
+    if (!projectId || !path) return;
+
+    const projectList = Array.isArray(projects.value) ? projects.value : [];
+    const project = projectList.find((item) => normaliseProjectId(item.id) === projectId);
+    if (!project) return;
+
+    const entry = ensureReportTreeEntry(projectId);
+    if (entry && !entry.hydratedReports && !entry.hydratingReports) {
+        await hydrateReportsForProject(projectId);
+    }
+
+    toggleReportTool();
+
+    const issue = payload?.issue || {};
+    const startLine = Number(issue.lineStart);
+    const endLine = Number(issue.lineEnd ?? issue.lineStart);
+
+    if (Number.isFinite(startLine)) {
+        const safeEnd = Number.isFinite(endLine) ? endLine : startLine;
+        codeSelection.value = {
+            path,
+            name: path,
+            label: path,
+            startLine,
+            endLine: safeEnd,
+            startColumn: 1,
+            endColumn: null,
+            lineCount: Math.max(1, Math.abs(safeEnd - startLine) + 1),
+            text: ""
+        };
+    } else {
+        codeSelection.value = null;
+    }
+
+    activeReportTarget.value = { projectId, path };
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
@@ -4075,6 +4140,23 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="toolColumn_btn"
+                    :class="{ active: isPreviewToolActive }"
+                    @click="togglePreviewTool"
+                    :aria-pressed="isPreviewToolActive"
+                    title="報告預覽"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            d="M3 12c2.5-4 5.7-6 9-6s6.5 2 9 6c-2.5 4-5.7 6-9 6s-6.5-2-9-6Z"
+                            fill="currentColor"
+                            opacity="0.16"
+                        />
+                        <circle cx="12" cy="12" r="3.5" fill="currentColor" />
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="toolColumn_btn"
                     :class="{ active: isReportToolActive }"
                     @click="toggleReportTool"
                     :aria-pressed="isReportToolActive"
@@ -4115,7 +4197,7 @@ onBeforeUnmount(() => {
                 :on-delete-project="deleteProject"
                 :is-tree-collapsed="isTreeCollapsed"
                 :is-report-tree-collapsed="isReportTreeCollapsed"
-                :show-content="isProjectToolActive || isReportToolActive"
+                :show-content="isProjectToolActive || isReportToolActive || isPreviewToolActive"
                 :tree="tree"
                 :active-tree-path="activeTreePath"
                 :is-loading-tree="isLoadingTree"
@@ -4124,7 +4206,16 @@ onBeforeUnmount(() => {
                 :report-config="reportPanelConfig"
                 :toggle-report-tree="toggleReportTreeCollapsed"
                 @resize-start="startPreviewResize"
-            />
+            >
+                <template v-if="isPreviewToolActive" #default>
+                    <ProjectPreviewPanel
+                        :previews="projectPreviewEntries"
+                        :loading="isProjectPreviewLoading"
+                        :compact="true"
+                        @select-issue="handlePreviewIssueSelect"
+                    />
+                </template>
+            </PanelRail>
 
             <section class="workSpace" :class="{ 'workSpace--reports': isReportToolActive }">
                 <template v-if="isReportToolActive">
@@ -4543,6 +4634,15 @@ onBeforeUnmount(() => {
                         </div>
                     </template>
                     <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+                </template>
+                <template v-else-if="isPreviewToolActive">
+                    <div class="panelHeader">報告預覽</div>
+                    <ProjectPreviewPanel
+                        :previews="projectPreviewEntries"
+                        :loading="isProjectPreviewLoading"
+                        :show-summary="true"
+                        @select-issue="handlePreviewIssueSelect"
+                    />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">
                     <div class="pvHeader">
