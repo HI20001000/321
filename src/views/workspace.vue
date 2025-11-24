@@ -38,8 +38,10 @@ import {
     normaliseAiReviewPayload,
     parseReportJson
 } from "../scripts/reports/shared.js";
+import { buildProjectPreviewIndex } from "../scripts/projectPreview/index.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
+import ProjectPreviewPanel from "../compnenets/ProjectPreviewPanel.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
     eager: true,
@@ -132,6 +134,7 @@ const previewLineItems = computed(() => {
 const middlePaneWidth = ref(360);
 const mainContentRef = ref(null);
 const codeScrollRef = ref(null);
+const reportIssuesContentRef = ref(null);
 const codeSelection = ref(null);
 let pointerDownInCode = false;
 let shouldClearAfterPointerClick = false;
@@ -163,6 +166,7 @@ const reportStates = reactive({});
 const reportTreeCache = reactive({});
 const reportBatchStates = reactive({});
 const activeReportTarget = ref(null);
+const pendingReportIssueFocus = ref(null);
 const reportExportState = reactive({
     combined: false,
     static: false,
@@ -177,10 +181,15 @@ const handleToggleDmlSection = (event) => {
 };
 const isProjectToolActive = computed(() => activeRailTool.value === "projects");
 const isReportToolActive = computed(() => activeRailTool.value === "reports");
+const isPreviewToolActive = computed(() => activeRailTool.value === "preview");
 const shouldPrepareReportTrees = computed(
-    () => isProjectToolActive.value || isReportToolActive.value
+    () => isProjectToolActive.value || isReportToolActive.value || isPreviewToolActive.value
 );
-const panelMode = computed(() => (isReportToolActive.value ? "reports" : "projects"));
+const panelMode = computed(() => {
+    if (isReportToolActive.value) return "reports";
+    if (isPreviewToolActive.value) return "preview";
+    return "projects";
+});
 const reportProjectEntries = computed(() => {
     const list = Array.isArray(projects.value) ? projects.value : [];
     return list.map((project) => {
@@ -267,6 +276,18 @@ const readyReports = computed(() => {
 const projectIssueTotals = computed(() =>
     collectIssueSummaryTotals(reportStates, { parseKey: parseReportKey })
 );
+const projectPreviewEntries = computed(() =>
+    buildProjectPreviewIndex({
+        projects: projects.value,
+        reportStates,
+        parseKey: parseReportKey
+    })
+);
+const isProjectPreviewLoading = computed(() => {
+    const caches = Object.values(reportTreeCache);
+    if (!caches.length) return false;
+    return caches.some((entry) => entry.loading || entry.hydratingReports);
+});
 const hasReadyReports = computed(() => readyReports.value.length > 0);
 const activeReport = computed(() => {
     const target = activeReportTarget.value;
@@ -2662,6 +2683,21 @@ watch(
 );
 
 watch(
+    () => reportIssueLines.value,
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
+watch(
+    () => activeReportTarget.value,
+    () => {
+        focusPendingReportIssue();
+    }
+);
+
+watch(
     () => codeScrollRef.value,
     (next, prev) => {
         if (codeScrollResizeObserver && prev) {
@@ -2807,6 +2843,12 @@ function toggleProjectTool() {
 function toggleReportTool() {
     if (isReportToolActive.value) return;
     activeRailTool.value = "reports";
+    isReportTreeCollapsed.value = true;
+}
+
+function togglePreviewTool() {
+    if (isPreviewToolActive.value) return;
+    activeRailTool.value = "preview";
     isReportTreeCollapsed.value = true;
 }
 
@@ -3349,6 +3391,68 @@ function selectReport(projectId, path) {
         projectId: normaliseProjectId(projectId),
         path
     };
+}
+
+async function handlePreviewIssueSelect(payload) {
+    const projectId = normaliseProjectId(payload?.projectId);
+    const path = payload?.path || payload?.issue?.path || "";
+    if (!projectId || !path) return;
+
+    const projectList = Array.isArray(projects.value) ? projects.value : [];
+    const project = projectList.find((item) => normaliseProjectId(item.id) === projectId);
+    if (!project) return;
+
+    const entry = ensureReportTreeEntry(projectId);
+    if (entry && !entry.hydratedReports && !entry.hydratingReports) {
+        await hydrateReportsForProject(projectId);
+    }
+
+    selectReport(projectId, path);
+    activeRailTool.value = "reports";
+
+    const issue = payload?.issue || {};
+    const startLine = Number(issue.lineStart);
+    const endLine = Number(issue.lineEnd ?? issue.lineStart);
+
+    pendingReportIssueFocus.value = {
+        projectId,
+        path,
+        lineStart: Number.isFinite(startLine) ? startLine : null,
+        lineEnd: Number.isFinite(endLine) ? endLine : null
+    };
+    await focusPendingReportIssue();
+}
+
+async function focusPendingReportIssue() {
+    const pending = pendingReportIssueFocus.value;
+    if (!pending) return;
+
+    const active = activeReport.value;
+    const activeProjectId = normaliseProjectId(active?.project?.id);
+    if (!active || activeProjectId !== pending.projectId || active.path !== pending.path) {
+        return;
+    }
+
+    if (!Number.isFinite(pending.lineStart)) {
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    await nextTick();
+
+    const container = reportIssuesContentRef.value;
+    if (!container) return;
+
+    const targetLine = Math.max(1, Math.floor(pending.lineStart));
+    const lineElement =
+        container.querySelector(`[data-line="${targetLine}"]`) ||
+        container.querySelector(`[data-line="${targetLine + 1}"]`) ||
+        container.querySelector(`[data-line="${targetLine - 1}"]`);
+
+    if (lineElement && typeof lineElement.scrollIntoView === "function") {
+        lineElement.scrollIntoView({ block: "center", behavior: "smooth" });
+        pendingReportIssueFocus.value = null;
+    }
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
@@ -4075,6 +4179,23 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="toolColumn_btn"
+                    :class="{ active: isPreviewToolActive }"
+                    @click="togglePreviewTool"
+                    :aria-pressed="isPreviewToolActive"
+                    title="報告預覽"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            d="M3 12c2.5-4 5.7-6 9-6s6.5 2 9 6c-2.5 4-5.7 6-9 6s-6.5-2-9-6Z"
+                            fill="currentColor"
+                            opacity="0.16"
+                        />
+                        <circle cx="12" cy="12" r="3.5" fill="currentColor" />
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="toolColumn_btn"
                     :class="{ active: isReportToolActive }"
                     @click="toggleReportTool"
                     :aria-pressed="isReportToolActive"
@@ -4115,7 +4236,7 @@ onBeforeUnmount(() => {
                 :on-delete-project="deleteProject"
                 :is-tree-collapsed="isTreeCollapsed"
                 :is-report-tree-collapsed="isReportTreeCollapsed"
-                :show-content="isProjectToolActive || isReportToolActive"
+                :show-content="isProjectToolActive || isReportToolActive || isPreviewToolActive"
                 :tree="tree"
                 :active-tree-path="activeTreePath"
                 :is-loading-tree="isLoadingTree"
@@ -4124,7 +4245,16 @@ onBeforeUnmount(() => {
                 :report-config="reportPanelConfig"
                 :toggle-report-tree="toggleReportTreeCollapsed"
                 @resize-start="startPreviewResize"
-            />
+            >
+                <template v-if="isPreviewToolActive" #default>
+                    <ProjectPreviewPanel
+                        :previews="projectPreviewEntries"
+                        :loading="isProjectPreviewLoading"
+                        :compact="true"
+                        @select-issue="handlePreviewIssueSelect"
+                    />
+                </template>
+            </PanelRail>
 
             <section class="workSpace" :class="{ 'workSpace--reports': isReportToolActive }">
                 <template v-if="isReportToolActive">
@@ -4397,7 +4527,7 @@ onBeforeUnmount(() => {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="reportIssuesContent">
+                                            <div class="reportIssuesContent" ref="reportIssuesContentRef">
                                                 <template v-if="activeReportDetails">
                                                     <div
                                                         v-if="activeReport.state.sourceLoading"
@@ -4543,6 +4673,15 @@ onBeforeUnmount(() => {
                         </div>
                     </template>
                     <p v-else class="reportViewerPlaceholder">尚未生成任何報告，請先於左側檔案中啟動生成。</p>
+                </template>
+                <template v-else-if="isPreviewToolActive">
+                    <div class="panelHeader">報告預覽</div>
+                    <ProjectPreviewPanel
+                        :previews="projectPreviewEntries"
+                        :loading="isProjectPreviewLoading"
+                        :show-summary="true"
+                        @select-issue="handlePreviewIssueSelect"
+                    />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">
                     <div class="pvHeader">
@@ -5527,9 +5666,9 @@ body,
     gap: 12px;
     border: 1px solid rgba(148, 163, 184, 0.28);
     border-radius: 8px;
-    padding: 12px;
+    padding: 12px 12px 0;
     background: rgba(15, 23, 42, 0.02);
-    overflow: visible;
+    overflow: auto;
 }
 
 .reportIssuesHeader h4 {
@@ -5633,12 +5772,12 @@ body,
 .reportIssuesRow .reportRowContent.codeScroll {
     display: flex;
     flex-direction: column;
-    overflow: visible;
+    overflow: auto;
     max-height: none;
 }
 
 .reportIssuesRow .codeEditor {
-    padding: 4px 0;
+    padding: 4px 0 0;
 }
 
 .reportIssuesRow .codeLine {
