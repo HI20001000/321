@@ -255,6 +255,7 @@ const projectBatchProgress = (projectId) => {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-x: auto;
     transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
