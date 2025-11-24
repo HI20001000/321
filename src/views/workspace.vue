@@ -3478,6 +3478,20 @@ async function focusPendingReportIssue() {
 
     await nextTick();
 
+    const attempts = Number(pending.attempts) || 0;
+
+    const retryLater = (delay = 80) => {
+        if (attempts >= 15) {
+            pendingReportIssueFocus.value = null;
+            return;
+        }
+
+        pendingReportIssueFocus.value = { ...pending, attempts: attempts + 1 };
+        window.setTimeout(() => {
+            focusPendingReportIssue();
+        }, delay);
+    };
+
     const viewerRoot =
         reportViewerContentRef.value ||
         reportIssuesContentRef.value ||
@@ -3486,7 +3500,10 @@ async function focusPendingReportIssue() {
             : null) ||
         null;
 
-    if (!viewerRoot) return;
+    if (!viewerRoot) {
+        retryLater();
+        return;
+    }
 
     const issuesContainer =
         reportIssuesContentRef.value ||
@@ -3498,6 +3515,11 @@ async function focusPendingReportIssue() {
         issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
         issuesContainer.querySelector?.(".reportRowContent.codeScroll") ||
         issuesContainer;
+
+    if (!scrollContainer || scrollContainer.children.length === 0) {
+        retryLater();
+        return;
+    }
 
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
     const lineSearchRoots = [scrollContainer, issuesContainer, viewerRoot];
@@ -3519,16 +3541,7 @@ async function focusPendingReportIssue() {
         return;
     }
 
-    const attempts = Number(pending.attempts) || 0;
-    if (attempts >= 5) {
-        pendingReportIssueFocus.value = null;
-        return;
-    }
-
-    pendingReportIssueFocus.value = { ...pending, attempts: attempts + 1 };
-    window.setTimeout(() => {
-        focusPendingReportIssue();
-    }, 60);
+    retryLater(attempts >= 10 ? 160 : 100);
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
