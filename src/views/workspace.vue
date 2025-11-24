@@ -3453,12 +3453,20 @@ function findReportIssueLineElement(lineStart, lineEnd) {
     if (Number.isFinite(lineStart)) {
         const startLine = Math.max(1, Math.floor(lineStart));
         selectors.push(`.codeLine[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta[data-line="${startLine}"]`);
         selectors.push(`.codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--meta .codeLineNo[data-line="${startLine}"]`);
+        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${startLine}"]`);
     }
     if (Number.isFinite(lineEnd) && lineEnd !== lineStart) {
         const endLine = Math.max(1, Math.floor(lineEnd));
         selectors.push(`.codeLine[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--meta[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--fixMeta[data-line="${endLine}"]`);
         selectors.push(`.codeLineNo[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--meta .codeLineNo[data-line="${endLine}"]`);
+        selectors.push(`.codeLine--fixMeta .codeLineNo[data-line="${endLine}"]`);
     }
 
     const roots = [];
@@ -3483,8 +3491,19 @@ function scrollReportIssuesToLine(targetEl, containerEl) {
     const lineEl = targetEl.closest(".codeLine") || targetEl;
     const containerRect = containerEl.getBoundingClientRect();
     const lineRect = lineEl.getBoundingClientRect();
+    const workspaceRect =
+        typeof document !== "undefined"
+            ? document.querySelector(".workspace--reports")?.getBoundingClientRect() || null
+            : null;
+    const visibleTop = workspaceRect
+        ? Math.max(containerRect.top, workspaceRect.top)
+        : containerRect.top;
+    const visibleBottom = workspaceRect
+        ? Math.min(containerRect.bottom, workspaceRect.bottom)
+        : containerRect.bottom;
+    const visibleHeight = Math.max(0, visibleBottom - visibleTop) || containerEl.clientHeight;
     const offsetTop = lineRect.top - containerRect.top + containerEl.scrollTop;
-    const desiredTop = Math.max(0, offsetTop - containerEl.clientHeight + lineRect.height);
+    const desiredTop = Math.max(0, offsetTop - visibleHeight + lineRect.height);
 
     containerEl.scrollTo({ top: desiredTop, behavior: "smooth" });
     return true;
