@@ -41,7 +41,8 @@ import {
 import { buildProjectPreviewIndex } from "../scripts/projectPreview/index.js";
 import PanelRail from "../components/workspace/PanelRail.vue";
 import ChatAiWindow from "../components/ChatAiWindow.vue";
-import ProjectPreviewPanel from "../compnenets/ProjectPreviewPanel.vue";
+import ProjectPreviewPanel from "../components/projectpreview/ProjectPreviewPanel.vue";
+import SettingsPanel from "../components/setting/SettingsPanel.vue";
 
 const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
     eager: true,
@@ -187,6 +188,7 @@ const handleToggleDmlSection = (event) => {
 const isProjectToolActive = computed(() => activeRailTool.value === "projects");
 const isReportToolActive = computed(() => activeRailTool.value === "reports");
 const isPreviewToolActive = computed(() => activeRailTool.value === "preview");
+const isSettingsToolActive = computed(() => activeRailTool.value === "settings");
 const shouldPrepareReportTrees = computed(
     () => isProjectToolActive.value || isReportToolActive.value || isPreviewToolActive.value
 );
@@ -2873,6 +2875,16 @@ function togglePreviewTool() {
     isReportTreeCollapsed.value = true;
 }
 
+function toggleSettingsTool() {
+    if (isSettingsToolActive.value) return;
+    activeRailTool.value = "settings";
+    isReportTreeCollapsed.value = true;
+}
+
+function handleSettingsSave(payload) {
+    console.log("[Settings] Saved configuration", payload);
+}
+
 function normaliseProjectId(projectId) {
     if (projectId === null || projectId === undefined) return "";
     return String(projectId);
@@ -4358,6 +4370,21 @@ onBeforeUnmount(() => {
                         />
                     </svg>
                 </button>
+                <button
+                    type="button"
+                    class="toolColumn_btn toolColumn_btn--settings"
+                    :class="{ active: isSettingsToolActive }"
+                    @click="toggleSettingsTool"
+                    :aria-pressed="isSettingsToolActive"
+                    title="設定"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9.5 3.5a7.48 7.48 0 0 0-.14-1.39l2-1.55-2-3.46-2.36.94a7.57 7.57 0 0 0-2.4-1.38l-.35-2.5H9.75l-.35 2.5a7.57 7.57 0 0 0-2.4 1.38l-2.36-.94-2 3.46 2 1.55A7.48 7.48 0 0 0 4.5 12c0 .47.05.93.14 1.39l-2 1.55 2 3.46 2.36-.94a7.57 7.57 0 0 0 2.4 1.38l.35 2.5h4.26l.35-2.5a7.57 7.57 0 0 0 2.4-1.38l2.36.94 2-3.46-2-1.55c.09-.46.14-.92.14-1.39Z"
+                            fill="currentColor"
+                        />
+                    </svg>
+                </button>
             </nav>
             <PanelRail
                 :style-width="middlePaneStyle"
@@ -4388,8 +4415,14 @@ onBeforeUnmount(() => {
                 </template>
             </PanelRail>
 
-            <section class="workSpace" :class="{ 'workSpace--reports': isReportToolActive }">
-                <template v-if="isReportToolActive">
+            <section
+                class="workSpace"
+                :class="{ 'workSpace--reports': isReportToolActive, 'workSpace--settings': isSettingsToolActive }"
+            >
+                <template v-if="isSettingsToolActive">
+                    <SettingsPanel @save="handleSettingsSave" />
+                </template>
+                <template v-else-if="isReportToolActive">
                     <div class="panelHeader">報告檢視</div>
                     <template v-if="hasReadyReports || viewerHasContent">
                         <div
@@ -5086,6 +5119,10 @@ body,
     flex-direction: column;
 }
 
+.workSpace--settings {
+    gap: 12px;
+}
+
 .toolColumn {
     flex: 0 0 64px;
     width: 64px;
@@ -5123,6 +5160,10 @@ body,
 .toolColumn_btn svg {
     width: 33px;
     height: 33px;
+}
+
+.toolColumn_btn--settings {
+    background: #1f2937;
 }
 
 .toolColumn_btn--chat {
