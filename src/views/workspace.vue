@@ -3441,27 +3441,19 @@ async function focusPendingReportIssue() {
 
     await nextTick();
 
-    const viewerRoot =
-        reportViewerContentRef.value ||
-        reportIssuesContentRef.value ||
-        document.querySelector(".reportViewerContent") ||
-        document.querySelector(".reportIssuesContent") ||
-        null;
+    const viewerRoot = reportViewerContentRef.value || reportIssuesContentRef.value || null;
 
     if (!viewerRoot) return;
 
     const issuesContainer =
-        viewerRoot.querySelector?.(".reportIssuesContent") ||
-        document.querySelector(".reportIssuesContent") ||
-        viewerRoot;
+        reportIssuesContentRef.value || viewerRoot.querySelector?.(".reportIssuesContent") || viewerRoot;
 
     const scrollContainer =
         issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
-        issuesContainer ||
-        viewerRoot;
+        issuesContainer;
 
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
-    const lineSearchRoots = [issuesContainer, viewerRoot, document];
+    const lineSearchRoots = [issuesContainer, viewerRoot];
     const lineElement = lineSearchRoots.reduce((found, rootEl) => {
         if (found || !rootEl?.querySelector) return found;
         return (
@@ -5112,7 +5104,8 @@ body,
     box-sizing: border-box;
     min-width: 0;
     position: relative;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .reportViewerContent--loading > :not(.reportViewerProcessingOverlay) {
