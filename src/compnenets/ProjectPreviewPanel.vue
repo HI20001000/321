@@ -95,7 +95,13 @@ function handleIssueSelect(projectId, path, issue) {
                                     class="previewIssueButton"
                                     @click="handleIssueSelect(entry.project.id, report.path, issue)"
                                 >
-                                    <span class="previewIssueTitle">{{ issue.title }}</span>
+                                    <div class="previewIssueTitleGroup">
+                                        <span class="previewIssueTitle">{{ issue.title }}</span>
+                                        <span v-if="issue.severity" class="previewIssueSeverity">{{ issue.severity }}</span>
+                                        <span v-if="issue.issueCount !== null && issue.issueCount !== undefined" class="previewIssueCount">
+                                            問題 {{ issue.issueCount }}
+                                        </span>
+                                    </div>
                                     <span v-if="issue.lineLabel" class="previewIssueLine">{{ issue.lineLabel }}</span>
                                 </button>
                             </li>
@@ -290,6 +296,25 @@ function handleIssueSelect(projectId, path, issue) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.previewIssueTitleGroup {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.previewIssueSeverity,
+.previewIssueCount {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--panel-muted);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: rgba(148, 163, 184, 0.12);
 }
 
 .previewIssueLine {

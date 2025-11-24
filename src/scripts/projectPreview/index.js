@@ -136,6 +136,17 @@ function normaliseIssueTitle(issue) {
     return "未提供標題";
 }
 
+function normaliseSeverity(issue) {
+    if (!issue || typeof issue !== "object") return "";
+    const candidates = [issue.severity, issue.level, issue.severity_text, issue.severityText];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) {
+            return candidate.trim();
+        }
+    }
+    return "";
+}
+
 function parseCombinedReportSnapshot(state) {
     const content = normaliseJsonContent(state?.combinedReportJson ?? state?.combined_report_json);
     if (!content) {
@@ -151,6 +162,8 @@ function parseCombinedReportSnapshot(state) {
                   return {
                       id: `issue-${index}`,
                       title: normaliseIssueTitle(issue),
+                      severity: normaliseSeverity(issue),
+                      issueCount: Array.isArray(issue?.issues) ? issue.issues.length : null,
                       lineLabel: line.label,
                       lineStart: line.start,
                       lineEnd: line.end,
