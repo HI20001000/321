@@ -167,6 +167,7 @@ const reportStates = reactive({});
 const reportTreeCache = reactive({});
 const reportBatchStates = reactive({});
 const activeReportTarget = ref(null);
+const pendingReportIssueFocus = ref(null);
 const reportExportState = reactive({
     combined: false,
     static: false,
@@ -2683,6 +2684,21 @@ watch(
 );
 
 watch(
+    () => reportIssueLines.value,
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
+watch(
+    () => activeReportTarget.value,
+    () => {
+        focusPendingReportIssue();
+    }
+);
+
+watch(
     () => codeScrollRef.value,
     (next, prev) => {
         if (codeScrollResizeObserver && prev) {
@@ -3376,6 +3392,156 @@ function selectReport(projectId, path) {
         projectId: normaliseProjectId(projectId),
         path
     };
+}
+
+async function handlePreviewIssueSelect(payload) {
+    const projectId = normaliseProjectId(payload?.projectId);
+    const path = payload?.path || payload?.issue?.path || "";
+    if (!projectId || !path) return;
+
+    const projectList = Array.isArray(projects.value) ? projects.value : [];
+    const project = projectList.find((item) => normaliseProjectId(item.id) === projectId);
+    if (!project) return;
+
+    const entry = ensureReportTreeEntry(projectId);
+    if (entry && !entry.hydratedReports && !entry.hydratingReports) {
+        await hydrateReportsForProject(projectId);
+    }
+
+    selectReport(projectId, path);
+    activeRailTool.value = "reports";
+
+    const issue = payload?.issue || {};
+    const startLine = Number(issue.lineStart);
+    const endLine = Number(issue.lineEnd ?? issue.lineStart);
+
+    pendingReportIssueFocus.value = {
+        projectId,
+        path,
+        lineStart: Number.isFinite(startLine) ? startLine : null,
+        lineEnd: Number.isFinite(endLine) ? endLine : null
+    };
+    await focusPendingReportIssue();
+}
+
+function findReportIssueLineElement(roots, targetLine) {
+    const baseTarget = Number.parseInt(targetLine, 10);
+    if (!Number.isFinite(baseTarget) || baseTarget < 1) return null;
+
+    const targetNumbers = Array.from(new Set([baseTarget, baseTarget + 1, baseTarget - 1]))
+        .filter((value) => Number.isFinite(value) && value > 0);
+
+    for (const root of roots) {
+        if (!root?.querySelector) continue;
+        for (const value of targetNumbers) {
+            const selectors = [
+                `.codeLineNo--issue[data-line="${value}"]`,
+                `.codeLineNo[data-line="${value}"]`,
+                `.codeLine[data-line="${value}"]`,
+                `[data-line="${value}"]`
+            ];
+
+            for (const selector of selectors) {
+                const match = root.querySelector(selector);
+                if (match) return match;
+            }
+
+            const numbered = Array.from(
+                root.querySelectorAll?.(".codeLineNo--issue, .codeLineNo") || []
+            );
+            const matchedByText = numbered.find((el) => {
+                const dataNumber = Number.parseInt(el.dataset?.line || "", 10);
+                const textNumber = Number.parseInt(el.textContent || "", 10);
+                return dataNumber === value || textNumber === value;
+            });
+            if (matchedByText) return matchedByText;
+        }
+    }
+
+    return null;
+}
+
+async function focusPendingReportIssue() {
+    const pending = pendingReportIssueFocus.value;
+    if (!pending) return;
+
+    const active = activeReport.value;
+    const activeProjectId = normaliseProjectId(active?.project?.id);
+    if (!active || activeProjectId !== pending.projectId || active.path !== pending.path) {
+        return;
+    }
+
+    if (!Number.isFinite(pending.lineStart)) {
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    await nextTick();
+
+    const attempts = Number(pending.attempts) || 0;
+
+    const retryLater = (delay = 80) => {
+        if (attempts >= 15) {
+            pendingReportIssueFocus.value = null;
+            return;
+        }
+
+        pendingReportIssueFocus.value = { ...pending, attempts: attempts + 1 };
+        window.setTimeout(() => {
+            focusPendingReportIssue();
+        }, delay);
+    };
+
+    const viewerRoot =
+        reportViewerContentRef.value ||
+        reportIssuesContentRef.value ||
+        (typeof document !== "undefined"
+            ? document.querySelector?.(".reportViewerContent") || document.querySelector?.(".reportIssuesContent")
+            : null) ||
+        null;
+
+    if (!viewerRoot) {
+        retryLater();
+        return;
+    }
+
+    const issuesContainer =
+        reportIssuesContentRef.value ||
+        viewerRoot.querySelector?.(".reportIssuesContent") ||
+        (typeof document !== "undefined" ? document.querySelector?.(".reportIssuesContent") : null) ||
+        viewerRoot;
+
+    const scrollContainer =
+        issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
+        issuesContainer.querySelector?.(".reportRowContent.codeScroll") ||
+        issuesContainer;
+
+    if (!scrollContainer || scrollContainer.children.length === 0) {
+        retryLater();
+        return;
+    }
+
+    const targetLine = Math.max(1, Math.floor(pending.lineStart));
+    const lineSearchRoots = [scrollContainer, issuesContainer, viewerRoot];
+    const lineElement = findReportIssueLineElement(lineSearchRoots, targetLine);
+
+    const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
+
+    if (focusElement && typeof scrollContainer.scrollTo === "function") {
+        const targetBottom = focusElement.offsetTop + focusElement.offsetHeight;
+        const nextScrollTop = Math.max(0, targetBottom - scrollContainer.clientHeight);
+        scrollContainer.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    if (lineElement && typeof lineElement.scrollIntoView === "function") {
+        lineElement.scrollIntoView({ block: "end", behavior: "smooth" });
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    retryLater(attempts >= 10 ? 160 : 100);
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
