@@ -3441,19 +3441,29 @@ async function focusPendingReportIssue() {
 
     await nextTick();
 
-    const viewerRoot = reportViewerContentRef.value || reportIssuesContentRef.value || null;
+    const viewerRoot =
+        reportViewerContentRef.value ||
+        reportIssuesContentRef.value ||
+        (typeof document !== "undefined"
+            ? document.querySelector?.(".reportViewerContent") || document.querySelector?.(".reportIssuesContent")
+            : null) ||
+        null;
 
     if (!viewerRoot) return;
 
     const issuesContainer =
-        reportIssuesContentRef.value || viewerRoot.querySelector?.(".reportIssuesContent") || viewerRoot;
+        reportIssuesContentRef.value ||
+        viewerRoot.querySelector?.(".reportIssuesContent") ||
+        (typeof document !== "undefined" ? document.querySelector?.(".reportIssuesContent") : null) ||
+        viewerRoot;
 
     const scrollContainer =
         issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
+        issuesContainer.querySelector?.(".reportRowContent.codeScroll") ||
         issuesContainer;
 
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
-    const lineSearchRoots = [issuesContainer, viewerRoot];
+    const lineSearchRoots = [issuesContainer, viewerRoot, scrollContainer];
     const lineElement = lineSearchRoots.reduce((found, rootEl) => {
         if (found || !rootEl?.querySelector) return found;
         return (
@@ -3466,11 +3476,8 @@ async function focusPendingReportIssue() {
     const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
 
     if (focusElement && typeof scrollContainer.scrollTo === "function") {
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const targetRect = focusElement.getBoundingClientRect();
-        const targetBottomWithinContainer =
-            targetRect.bottom - containerRect.top + scrollContainer.scrollTop;
-        const nextScrollTop = Math.max(0, targetBottomWithinContainer - scrollContainer.clientHeight);
+        const targetBottom = focusElement.offsetTop + focusElement.offsetHeight;
+        const nextScrollTop = Math.max(0, targetBottom - scrollContainer.clientHeight);
         scrollContainer.scrollTo({ top: nextScrollTop, behavior: "smooth" });
         pendingReportIssueFocus.value = null;
         return;

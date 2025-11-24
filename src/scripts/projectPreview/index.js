@@ -15,27 +15,17 @@ function parseLineValue(value) {
     if (typeof value === "string") {
         const trimmed = value.trim();
         if (!trimmed) return null;
-
-        // Strict match like "12" or "12-18"
-        const strictRangeMatch = trimmed.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
-        const looseRangeMatch = trimmed.match(/(\d+)(?:\s*-\s*(\d+))?/);
-        const rangeMatch = strictRangeMatch || looseRangeMatch;
-
+        const rangeMatch = trimmed.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
         if (rangeMatch) {
             const start = Number(rangeMatch[1]);
             const end = Number(rangeMatch[2] || rangeMatch[1]);
             if (Number.isFinite(start) && Number.isFinite(end)) {
                 const safeStart = Math.min(start, end);
                 const safeEnd = Math.max(start, end);
-                const label = rangeMatch[0] && rangeMatch === strictRangeMatch
-                    ? trimmed
-                    : safeStart === safeEnd
-                      ? String(safeStart)
-                      : `${safeStart}-${safeEnd}`;
                 return {
                     start: safeStart,
                     end: safeEnd,
-                    label
+                    label: safeStart === safeEnd ? String(safeStart) : `${safeStart}-${safeEnd}`
                 };
             }
         }
