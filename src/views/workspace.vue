@@ -3468,7 +3468,19 @@ async function focusPendingReportIssue() {
     if (lineElement && typeof lineElement.scrollIntoView === "function") {
         lineElement.scrollIntoView({ block: "end", behavior: "smooth" });
         pendingReportIssueFocus.value = null;
+        return;
     }
+
+    const attempts = Number(pending.attempts) || 0;
+    if (attempts >= 5) {
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    pendingReportIssueFocus.value = { ...pending, attempts: attempts + 1 };
+    window.setTimeout(() => {
+        focusPendingReportIssue();
+    }, 60);
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
