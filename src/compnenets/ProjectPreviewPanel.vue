@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref } from "vue";
 
+const emit = defineEmits(["select-issue"]);
+
 const props = defineProps({
     previews: {
         type: Array,
@@ -38,6 +40,16 @@ function toggleProject(projectId) {
         next.add(key);
     }
     expandedProjects.value = next;
+}
+
+function handleSelectIssue(entry, report, issue) {
+    emit("select-issue", {
+        projectId: entry?.project?.id,
+        projectName: entry?.project?.name,
+        path: report?.path,
+        lineStart: issue?.lineStart ?? issue?.lineEnd,
+        lineEnd: issue?.lineEnd ?? issue?.lineStart
+    });
 }
 </script>
 
@@ -80,7 +92,11 @@ function toggleProject(projectId) {
                                 :key="issue.id"
                                 class="previewIssueItem"
                             >
-                                <div class="previewIssueButton" role="presentation">
+                                <button
+                                    type="button"
+                                    class="previewIssueButton"
+                                    @click="handleSelectIssue(entry, report, issue)"
+                                >
                                     <div class="previewIssueTitleGroup">
                                         <span v-if="issue.severity" class="previewIssueSeverity">{{ issue.severity }}</span>
                                         <span v-if="issue.issueCount !== null && issue.issueCount !== undefined" class="previewIssueCount">
@@ -89,7 +105,7 @@ function toggleProject(projectId) {
                                         <span class="previewIssueTitle">{{ issue.title }}</span>
                                     </div>
                                     <span v-if="issue.lineLabel" class="previewIssueLine">{{ issue.lineLabel }}</span>
-                                </div>
+                                </button>
                             </li>
                         </ul>
                         <div v-if="showSummary && report.summary.length" class="previewSummary">

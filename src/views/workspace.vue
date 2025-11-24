@@ -136,6 +136,10 @@ const mainContentRef = ref(null);
 const codeScrollRef = ref(null);
 const reportViewerContentRef = ref(null);
 const reportIssuesContentRef = ref(null);
+const pendingReportIssueJump = ref(null);
+let pendingReportIssueJumpTimer = null;
+const REPORT_ISSUE_JUMP_MAX_ATTEMPTS = 40;
+const REPORT_ISSUE_JUMP_INTERVAL = 180;
 const codeSelection = ref(null);
 let pointerDownInCode = false;
 let shouldClearAfterPointerClick = false;
@@ -3394,154 +3398,164 @@ function selectReport(projectId, path) {
     };
 }
 
-async function handlePreviewIssueSelect(payload) {
-    const projectId = normaliseProjectId(payload?.projectId);
-    const path = payload?.path || payload?.issue?.path || "";
-    if (!projectId || !path) return;
-
-    const projectList = Array.isArray(projects.value) ? projects.value : [];
-    const project = projectList.find((item) => normaliseProjectId(item.id) === projectId);
-    if (!project) return;
-
-    const entry = ensureReportTreeEntry(projectId);
-    if (entry && !entry.hydratedReports && !entry.hydratingReports) {
-        await hydrateReportsForProject(projectId);
+function resolveReportIssuesContainer() {
+    const containers = [];
+    if (reportIssuesContentRef.value) {
+        const rowContent = reportIssuesContentRef.value.querySelector(
+            ".reportIssuesRow .reportRowContent.codeScroll"
+        );
+        if (rowContent) {
+            containers.push(rowContent);
+        }
+        containers.push(reportIssuesContentRef.value);
     }
 
-    selectReport(projectId, path);
-    activeRailTool.value = "reports";
-
-    const issue = payload?.issue || {};
-    const startLine = Number(issue.lineStart);
-    const endLine = Number(issue.lineEnd ?? issue.lineStart);
-
-    pendingReportIssueFocus.value = {
-        projectId,
-        path,
-        lineStart: Number.isFinite(startLine) ? startLine : null,
-        lineEnd: Number.isFinite(endLine) ? endLine : null
-    };
-    await focusPendingReportIssue();
-}
-
-function findReportIssueLineElement(roots, targetLine) {
-    const baseTarget = Number.parseInt(targetLine, 10);
-    if (!Number.isFinite(baseTarget) || baseTarget < 1) return null;
-
-    const targetNumbers = Array.from(new Set([baseTarget, baseTarget + 1, baseTarget - 1]))
-        .filter((value) => Number.isFinite(value) && value > 0);
-
-    for (const root of roots) {
-        if (!root?.querySelector) continue;
-        for (const value of targetNumbers) {
-            const selectors = [
-                `.codeLineNo--issue[data-line="${value}"]`,
-                `.codeLineNo[data-line="${value}"]`,
-                `.codeLine[data-line="${value}"]`,
-                `[data-line="${value}"]`
-            ];
-
-            for (const selector of selectors) {
-                const match = root.querySelector(selector);
-                if (match) return match;
-            }
-
-            const numbered = Array.from(
-                root.querySelectorAll?.(".codeLineNo--issue, .codeLineNo") || []
+    const viewerEl = reportViewerContentRef.value;
+    if (viewerEl) {
+        const nested = viewerEl.querySelector(".reportIssuesContent");
+        if (nested) {
+            containers.push(nested);
+            const nestedRowContent = nested.querySelector(
+                ".reportIssuesRow .reportRowContent.codeScroll"
             );
-            const matchedByText = numbered.find((el) => {
-                const dataNumber = Number.parseInt(el.dataset?.line || "", 10);
-                const textNumber = Number.parseInt(el.textContent || "", 10);
-                return dataNumber === value || textNumber === value;
-            });
-            if (matchedByText) return matchedByText;
+            if (nestedRowContent) {
+                containers.unshift(nestedRowContent);
+            }
         }
     }
 
+    if (typeof document !== "undefined") {
+        const documentContainer = document.querySelector(".reportIssuesContent");
+        if (documentContainer) {
+            containers.push(documentContainer);
+            const documentRowContent = documentContainer.querySelector(
+                ".reportIssuesRow .reportRowContent.codeScroll"
+            );
+            if (documentRowContent) {
+                containers.unshift(documentRowContent);
+            }
+        }
+    }
+
+    for (const el of containers) {
+        if (el && el.scrollHeight - el.clientHeight > 4) {
+            return el;
+        }
+    }
+
+    return containers[0] || null;
+}
+
+function findReportIssueLineElement(lineStart, lineEnd) {
+    const selectors = [];
+    if (Number.isFinite(lineStart)) {
+        const startLine = Math.max(1, Math.floor(lineStart));
+        selectors.push(`.codeLine[data-line="${startLine}"]`);
+        selectors.push(`.codeLineNo[data-line="${startLine}"]`);
+    }
+    if (Number.isFinite(lineEnd) && lineEnd !== lineStart) {
+        const endLine = Math.max(1, Math.floor(lineEnd));
+        selectors.push(`.codeLine[data-line="${endLine}"]`);
+        selectors.push(`.codeLineNo[data-line="${endLine}"]`);
+    }
+
+    const roots = [];
+    if (reportIssuesContentRef.value) roots.push(reportIssuesContentRef.value);
+    if (reportViewerContentRef.value) roots.push(reportViewerContentRef.value);
+    if (typeof document !== "undefined") roots.push(document);
+
+    for (const root of roots) {
+        for (const selector of selectors) {
+            const found = root.querySelector(selector);
+            if (found) {
+                return found.closest(".codeLine") || found;
+            }
+        }
+    }
     return null;
 }
 
-async function focusPendingReportIssue() {
-    const pending = pendingReportIssueFocus.value;
+function scrollReportIssuesToLine(targetEl, containerEl) {
+    if (!targetEl || !containerEl) return false;
+
+    const lineEl = targetEl.closest(".codeLine") || targetEl;
+    const containerRect = containerEl.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const offsetTop = lineRect.top - containerRect.top + containerEl.scrollTop;
+    const desiredTop = Math.max(0, offsetTop - containerEl.clientHeight + lineRect.height);
+
+    containerEl.scrollTo({ top: desiredTop, behavior: "smooth" });
+    return true;
+}
+
+function schedulePendingReportIssueJump(delay = REPORT_ISSUE_JUMP_INTERVAL) {
+    if (pendingReportIssueJumpTimer) {
+        clearTimeout(pendingReportIssueJumpTimer);
+    }
+    pendingReportIssueJumpTimer = setTimeout(() => {
+        pendingReportIssueJumpTimer = null;
+        attemptPendingReportIssueJump();
+    }, delay);
+}
+
+function attemptPendingReportIssueJump() {
+    const pending = pendingReportIssueJump.value;
     if (!pending) return;
 
     const active = activeReport.value;
     const activeProjectId = normaliseProjectId(active?.project?.id);
     if (!active || activeProjectId !== pending.projectId || active.path !== pending.path) {
+        schedulePendingReportIssueJump();
         return;
     }
 
-    if (!Number.isFinite(pending.lineStart)) {
-        pendingReportIssueFocus.value = null;
+    if (!reportIssueLines.value.length) {
+        schedulePendingReportIssueJump();
         return;
     }
 
-    await nextTick();
+    const container = resolveReportIssuesContainer();
+    const lineEl = findReportIssueLineElement(pending.lineStart, pending.lineEnd);
+    if (container && lineEl && scrollReportIssuesToLine(lineEl, container)) {
+        pendingReportIssueJump.value = null;
+        return;
+    }
 
-    const attempts = Number(pending.attempts) || 0;
+    if ((pending.attempts ?? 0) + 1 >= REPORT_ISSUE_JUMP_MAX_ATTEMPTS) {
+        pendingReportIssueJump.value = null;
+        return;
+    }
 
-    const retryLater = (delay = 80) => {
-        if (attempts >= 15) {
-            pendingReportIssueFocus.value = null;
-            return;
-        }
+    pendingReportIssueJump.value = {
+        ...pending,
+        attempts: (pending.attempts ?? 0) + 1
+    };
+    schedulePendingReportIssueJump();
+}
 
-        pendingReportIssueFocus.value = { ...pending, attempts: attempts + 1 };
-        window.setTimeout(() => {
-            focusPendingReportIssue();
-        }, delay);
+function handlePreviewIssueSelect(payload) {
+    const projectId = normaliseProjectId(payload?.projectId);
+    const path = typeof payload?.path === "string" ? payload.path : "";
+    const lineStart = Number(payload?.lineStart ?? payload?.lineEnd ?? NaN);
+    const lineEnd = Number(payload?.lineEnd ?? payload?.lineStart ?? NaN);
+
+    if (!projectId || !path || !Number.isFinite(lineStart)) {
+        return;
+    }
+
+    activeRailTool.value = "reports";
+    isReportTreeCollapsed.value = true;
+    selectReport(projectId, path);
+
+    pendingReportIssueJump.value = {
+        projectId,
+        path,
+        lineStart: Math.max(1, Math.floor(lineStart)),
+        lineEnd: Number.isFinite(lineEnd) ? Math.max(1, Math.floor(lineEnd)) : Math.max(1, Math.floor(lineStart)),
+        attempts: 0
     };
 
-    const viewerRoot =
-        reportViewerContentRef.value ||
-        reportIssuesContentRef.value ||
-        (typeof document !== "undefined"
-            ? document.querySelector?.(".reportViewerContent") || document.querySelector?.(".reportIssuesContent")
-            : null) ||
-        null;
-
-    if (!viewerRoot) {
-        retryLater();
-        return;
-    }
-
-    const issuesContainer =
-        reportIssuesContentRef.value ||
-        viewerRoot.querySelector?.(".reportIssuesContent") ||
-        (typeof document !== "undefined" ? document.querySelector?.(".reportIssuesContent") : null) ||
-        viewerRoot;
-
-    const scrollContainer =
-        issuesContainer.querySelector?.(".reportIssuesRow .reportRowContent.codeScroll") ||
-        issuesContainer.querySelector?.(".reportRowContent.codeScroll") ||
-        issuesContainer;
-
-    if (!scrollContainer || scrollContainer.children.length === 0) {
-        retryLater();
-        return;
-    }
-
-    const targetLine = Math.max(1, Math.floor(pending.lineStart));
-    const lineSearchRoots = [scrollContainer, issuesContainer, viewerRoot];
-    const lineElement = findReportIssueLineElement(lineSearchRoots, targetLine);
-
-    const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
-
-    if (focusElement && typeof scrollContainer.scrollTo === "function") {
-        const targetBottom = focusElement.offsetTop + focusElement.offsetHeight;
-        const nextScrollTop = Math.max(0, targetBottom - scrollContainer.clientHeight);
-        scrollContainer.scrollTo({ top: nextScrollTop, behavior: "smooth" });
-        pendingReportIssueFocus.value = null;
-        return;
-    }
-
-    if (lineElement && typeof lineElement.scrollIntoView === "function") {
-        lineElement.scrollIntoView({ block: "end", behavior: "smooth" });
-        pendingReportIssueFocus.value = null;
-        return;
-    }
-
-    retryLater(attempts >= 10 ? 160 : 100);
+    schedulePendingReportIssueJump(0);
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
@@ -4218,6 +4232,9 @@ onBeforeUnmount(() => {
     window.removeEventListener("resize", clampReportSidebarWidth);
     stopChatDrag();
     stopChatResize();
+    if (pendingReportIssueJumpTimer) {
+        clearTimeout(pendingReportIssueJumpTimer);
+    }
     if (typeof document !== "undefined") {
         document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
         document.removeEventListener("selectionchange", handleDocumentSelectionChange);
@@ -4340,6 +4357,7 @@ onBeforeUnmount(() => {
                         :previews="projectPreviewEntries"
                         :loading="isProjectPreviewLoading"
                         :compact="true"
+                        @select-issue="handlePreviewIssueSelect"
                     />
                 </template>
             </PanelRail>
@@ -4769,6 +4787,7 @@ onBeforeUnmount(() => {
                         :previews="projectPreviewEntries"
                         :loading="isProjectPreviewLoading"
                         :show-summary="true"
+                        @select-issue="handlePreviewIssueSelect"
                     />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">
