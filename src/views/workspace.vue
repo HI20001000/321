@@ -3424,6 +3424,43 @@ async function handlePreviewIssueSelect(payload) {
     await focusPendingReportIssue();
 }
 
+function findReportIssueLineElement(roots, targetLine) {
+    const baseTarget = Number.parseInt(targetLine, 10);
+    if (!Number.isFinite(baseTarget) || baseTarget < 1) return null;
+
+    const targetNumbers = Array.from(new Set([baseTarget, baseTarget + 1, baseTarget - 1]))
+        .filter((value) => Number.isFinite(value) && value > 0);
+
+    for (const root of roots) {
+        if (!root?.querySelector) continue;
+        for (const value of targetNumbers) {
+            const selectors = [
+                `.codeLineNo--issue[data-line="${value}"]`,
+                `.codeLineNo[data-line="${value}"]`,
+                `.codeLine[data-line="${value}"]`,
+                `[data-line="${value}"]`
+            ];
+
+            for (const selector of selectors) {
+                const match = root.querySelector(selector);
+                if (match) return match;
+            }
+
+            const numbered = Array.from(
+                root.querySelectorAll?.(".codeLineNo--issue, .codeLineNo") || []
+            );
+            const matchedByText = numbered.find((el) => {
+                const dataNumber = Number.parseInt(el.dataset?.line || "", 10);
+                const textNumber = Number.parseInt(el.textContent || "", 10);
+                return dataNumber === value || textNumber === value;
+            });
+            if (matchedByText) return matchedByText;
+        }
+    }
+
+    return null;
+}
+
 async function focusPendingReportIssue() {
     const pending = pendingReportIssueFocus.value;
     if (!pending) return;
@@ -3463,15 +3500,8 @@ async function focusPendingReportIssue() {
         issuesContainer;
 
     const targetLine = Math.max(1, Math.floor(pending.lineStart));
-    const lineSearchRoots = [issuesContainer, viewerRoot, scrollContainer];
-    const lineElement = lineSearchRoots.reduce((found, rootEl) => {
-        if (found || !rootEl?.querySelector) return found;
-        return (
-            rootEl.querySelector(`[data-line="${targetLine}"]`) ||
-            rootEl.querySelector(`[data-line="${targetLine + 1}"]`) ||
-            rootEl.querySelector(`[data-line="${targetLine - 1}"]`)
-        );
-    }, null);
+    const lineSearchRoots = [scrollContainer, issuesContainer, viewerRoot];
+    const lineElement = findReportIssueLineElement(lineSearchRoots, targetLine);
 
     const focusElement = lineElement?.closest?.(".codeLine") || lineElement;
 
