@@ -171,6 +171,7 @@ const reportStates = reactive({});
 const reportTreeCache = reactive({});
 const reportBatchStates = reactive({});
 const activeReportTarget = ref(null);
+const pendingReportIssueFocus = ref(null);
 const reportExportState = reactive({
     combined: false,
     static: false,
@@ -2683,6 +2684,21 @@ watch(
     () => previewLineItems.value.length,
     () => {
         scheduleLineWrapMeasurement();
+    }
+);
+
+watch(
+    () => reportIssueLines.value,
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
+watch(
+    () => activeReportTarget.value,
+    () => {
+        focusPendingReportIssue();
     }
 );
 
