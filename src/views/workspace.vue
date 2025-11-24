@@ -4340,7 +4340,6 @@ onBeforeUnmount(() => {
                         :previews="projectPreviewEntries"
                         :loading="isProjectPreviewLoading"
                         :compact="true"
-                        @select-issue="handlePreviewIssueSelect"
                     />
                 </template>
             </PanelRail>
@@ -4770,7 +4769,6 @@ onBeforeUnmount(() => {
                         :previews="projectPreviewEntries"
                         :loading="isProjectPreviewLoading"
                         :show-summary="true"
-                        @select-issue="handlePreviewIssueSelect"
                     />
                 </template>
                 <template v-else-if="previewing.kind && previewing.kind !== 'error'">

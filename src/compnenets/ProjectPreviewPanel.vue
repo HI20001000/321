@@ -20,8 +20,6 @@ const props = defineProps({
     }
 });
 
-const emit = defineEmits(["select-issue"]);
-
 const hasPreviews = computed(() => (props.previews || []).length > 0);
 const expandedProjects = ref(new Set());
 
@@ -40,14 +38,6 @@ function toggleProject(projectId) {
         next.add(key);
     }
     expandedProjects.value = next;
-}
-
-function handleIssueSelect(projectId, path, issue) {
-    emit("select-issue", {
-        projectId,
-        path,
-        issue
-    });
 }
 </script>
 
@@ -90,11 +80,7 @@ function handleIssueSelect(projectId, path, issue) {
                                 :key="issue.id"
                                 class="previewIssueItem"
                             >
-                                <button
-                                    type="button"
-                                    class="previewIssueButton"
-                                    @click="handleIssueSelect(entry.project.id, report.path, issue)"
-                                >
+                                <div class="previewIssueButton" role="presentation">
                                     <div class="previewIssueTitleGroup">
                                         <span v-if="issue.severity" class="previewIssueSeverity">{{ issue.severity }}</span>
                                         <span v-if="issue.issueCount !== null && issue.issueCount !== undefined" class="previewIssueCount">
@@ -103,7 +89,7 @@ function handleIssueSelect(projectId, path, issue) {
                                         <span class="previewIssueTitle">{{ issue.title }}</span>
                                     </div>
                                     <span v-if="issue.lineLabel" class="previewIssueLine">{{ issue.lineLabel }}</span>
-                                </button>
+                                </div>
                             </li>
                         </ul>
                         <div v-if="showSummary && report.summary.length" class="previewSummary">
