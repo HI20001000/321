@@ -134,6 +134,7 @@ const previewLineItems = computed(() => {
 const middlePaneWidth = ref(360);
 const mainContentRef = ref(null);
 const codeScrollRef = ref(null);
+const reportViewerContentRef = ref(null);
 const reportIssuesContentRef = ref(null);
 const codeSelection = ref(null);
 let pointerDownInCode = false;
@@ -3440,7 +3441,7 @@ async function focusPendingReportIssue() {
 
     await nextTick();
 
-    const container = reportIssuesContentRef.value;
+    const container = reportViewerContentRef.value || reportIssuesContentRef.value;
     if (!container) return;
 
     const scrollContainer =
@@ -4291,6 +4292,7 @@ onBeforeUnmount(() => {
                         <div
                             class="reportViewerContent"
                             :class="{ 'reportViewerContent--loading': isActiveReportProcessing }"
+                            ref="reportViewerContentRef"
                             :aria-busy="isActiveReportProcessing ? 'true' : 'false'"
                         >
                             <div
