@@ -5627,9 +5627,9 @@ body,
     gap: 12px;
     border: 1px solid rgba(148, 163, 184, 0.28);
     border-radius: 8px;
-    padding: 12px;
+    padding: 12px 12px 0;
     background: rgba(15, 23, 42, 0.02);
-    overflow: visible;
+    overflow: auto;
 }
 
 .reportIssuesHeader h4 {
@@ -5733,12 +5733,12 @@ body,
 .reportIssuesRow .reportRowContent.codeScroll {
     display: flex;
     flex-direction: column;
-    overflow: visible;
+    overflow: auto;
     max-height: none;
 }
 
 .reportIssuesRow .codeEditor {
-    padding: 4px 0;
+    padding: 4px 0 0;
 }
 
 .reportIssuesRow .codeLine {
