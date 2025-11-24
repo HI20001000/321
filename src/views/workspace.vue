@@ -3416,40 +3416,26 @@ function selectReport(projectId, path) {
 
 function resolveReportIssuesContainer() {
     const containers = [];
-    if (reportIssuesContentRef.value) {
-        const rowContent = reportIssuesContentRef.value.querySelector(
-            ".reportIssuesRow .reportRowContent.codeScroll"
-        );
-        if (rowContent) {
-            containers.push(rowContent);
-        }
-        containers.push(reportIssuesContentRef.value);
+
+    if (reportViewerContentRef.value) {
+        containers.push(reportViewerContentRef.value);
     }
 
-    const viewerEl = reportViewerContentRef.value;
-    if (viewerEl) {
-        const nested = viewerEl.querySelector(".reportIssuesContent");
-        if (nested) {
-            containers.push(nested);
-            const nestedRowContent = nested.querySelector(
-                ".reportIssuesRow .reportRowContent.codeScroll"
-            );
-            if (nestedRowContent) {
-                containers.unshift(nestedRowContent);
-            }
+    if (typeof document !== "undefined") {
+        const docViewer = document.querySelector(".reportViewerContent");
+        if (docViewer && !containers.includes(docViewer)) {
+            containers.push(docViewer);
         }
+    }
+
+    if (reportIssuesContentRef.value) {
+        containers.push(reportIssuesContentRef.value);
     }
 
     if (typeof document !== "undefined") {
         const documentContainer = document.querySelector(".reportIssuesContent");
-        if (documentContainer) {
+        if (documentContainer && !containers.includes(documentContainer)) {
             containers.push(documentContainer);
-            const documentRowContent = documentContainer.querySelector(
-                ".reportIssuesRow .reportRowContent.codeScroll"
-            );
-            if (documentRowContent) {
-                containers.unshift(documentRowContent);
-            }
         }
     }
 
@@ -3476,8 +3462,8 @@ function findReportIssueLineElement(lineStart, lineEnd) {
     }
 
     const roots = [];
-    if (reportIssuesContentRef.value) roots.push(reportIssuesContentRef.value);
     if (reportViewerContentRef.value) roots.push(reportViewerContentRef.value);
+    if (reportIssuesContentRef.value) roots.push(reportIssuesContentRef.value);
     if (typeof document !== "undefined") roots.push(document);
 
     for (const root of roots) {
