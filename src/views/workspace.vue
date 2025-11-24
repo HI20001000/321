@@ -179,6 +179,41 @@ const reportExportState = reactive({
     ai: false
 });
 const isDmlReportExpanded = ref(false);
+const settingsTab = ref("aiReview");
+const aiChunkConfig = reactive({
+    sqlChunkCount: 3,
+    javaChunkCount: 3
+});
+const ruleEngineConfigs = reactive({
+    sql: [
+        {
+            id: "SQL-001",
+            severityLevels: "critical",
+            description: "避免未帶條件的刪除或更新語句，防止全表操作",
+            enabled: true
+        },
+        {
+            id: "SQL-002",
+            severityLevels: "medium",
+            description: "強制使用參數化查詢以避免 SQL 注入風險",
+            enabled: true
+        }
+    ],
+    java: [
+        {
+            id: "JAVA-001",
+            severityLevels: "high",
+            description: "校驗日誌輸出是否含有敏感資訊",
+            enabled: true
+        },
+        {
+            id: "JAVA-002",
+            severityLevels: "low",
+            description: "檢查未關閉的資料庫連線或 IO 流",
+            enabled: false
+        }
+    ]
+});
 
 const handleToggleDmlSection = (event) => {
     if (event && typeof event.target?.open === "boolean") {
@@ -4361,6 +4396,22 @@ onBeforeUnmount(() => {
                     :aria-pressed="isChatWindowOpen"
                     title="Chat AI"
                 >
+                    <svg viewBox="0 0 1920 1920" aria-hidden="true">
+                        <path
+                            d="M960 282c529.355 0 960 430.758 960 960 0 77.139-8.922 153.148-26.541 225.882l-10.504 43.144h-560.188c-27.106 74.88-79.85 140.838-155.52 181.045-47.887 25.185-101.647 38.625-155.633 38.625-123.445 0-236.047-67.651-293.76-176.64-5.873-11.18-11.859-25.75-17.845-43.03H37.045l-10.504-43.144C8.922 1395.148 0 1319.14 0 1242c0-529.242 430.645-960 960-960Zm168.17 1229.026c47.66-49.355 61.214-125.139 27.331-189.064-42.24-79.51-403.765-413.59-403.765-413.59s73.638 486.776 115.765 566.287c7.341 13.892 16.941 25.525 27.219 36.367h-.904c2.033 2.146 4.518 3.614 6.551 5.534 4.63 4.405 9.374 8.47 14.344 12.198 3.727 2.823 7.68 5.308 11.52 7.68 5.195 3.162 10.39 6.098 15.924 8.81 4.292 1.92 8.584 3.726 13.101 5.42 5.422 1.92 10.956 3.727 16.716 5.083a159.91 159.91 0 0 0 14.23 3.049c5.76.904 11.407 1.468 17.167 1.694 2.824.113 5.535.79 8.245.79 1.92 0 3.84-.677 5.76-.677 8.245-.226 16.377-1.355 24.508-2.936 3.727-.791 7.567-1.13 11.294-2.146 11.746-3.163 23.266-7.229 34.335-13.214h.338v-.113c15.7-8.245 28.687-19.2 40.32-31.172Zm361.524-625.807 112.715-112.715-119.717-119.831-112.828 112.715 119.83 119.83Zm-614.4-254.457h169.412V471.29H875.294v159.473ZM430.306 885.22l119.83-119.83-112.715-112.716-119.83 119.83L430.306 885.22Z"
+                            fill="currentColor"
+                            fill-rule="evenodd"
+                        />
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="toolColumn_btn toolColumn_btn--settings"
+                    :class="{ active: isSettingsToolActive }"
+                    @click="toggleSettingsTool"
+                    :aria-pressed="isSettingsToolActive"
+                    title="設定"
+                >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
                             d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H7l-3 3Z"
@@ -5225,6 +5276,166 @@ body,
     font-weight: 700;
     color: #cbd5e1;
     font-size: 14px;
+}
+
+.settingsTabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.settingsTabBtn {
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    background: rgba(148, 163, 184, 0.16);
+    color: #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.settingsTabBtn.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(14, 165, 233, 0.25));
+    border-color: rgba(59, 130, 246, 0.6);
+    color: #f8fafc;
+}
+
+.settingsSection {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.settingsDescription {
+    margin: 0;
+    color: #cbd5e1;
+    line-height: 1.6;
+}
+
+.settingsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.settingCard {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.settingLabel {
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.settingInput,
+.settingTextarea {
+    width: 100%;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    background: #111827;
+    color: #e2e8f0;
+    padding: 8px 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.settingInput:focus,
+.settingTextarea:focus {
+    outline: 2px solid #60a5fa;
+    border-color: #60a5fa;
+}
+
+.settingTextarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.settingHint {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.ruleEngineGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+}
+
+.ruleEngineCard {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ruleEngineHeader h4 {
+    margin: 0;
+    color: #e2e8f0;
+}
+
+.ruleEngineSub {
+    margin: 4px 0 0;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.ruleTableWrapper {
+    overflow-x: auto;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+}
+
+.ruleTable {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 520px;
+}
+
+.ruleTable th,
+.ruleTable td {
+    border-bottom: 1px solid #1f2937;
+    padding: 10px;
+    text-align: left;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.ruleTable th {
+    background: #111827;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+
+.ruleTable tr:nth-child(even) {
+    background: rgba(148, 163, 184, 0.04);
+}
+
+.ruleEnabledCell {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.switchLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
 }
 
 .reportViewerContent {
