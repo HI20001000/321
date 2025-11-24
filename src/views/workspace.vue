@@ -134,6 +134,7 @@ const previewLineItems = computed(() => {
 const middlePaneWidth = ref(360);
 const mainContentRef = ref(null);
 const codeScrollRef = ref(null);
+const reportIssuesContentRef = ref(null);
 const codeSelection = ref(null);
 let pointerDownInCode = false;
 let shouldClearAfterPointerClick = false;
@@ -165,6 +166,7 @@ const reportStates = reactive({});
 const reportTreeCache = reactive({});
 const reportBatchStates = reactive({});
 const activeReportTarget = ref(null);
+const pendingReportIssueFocus = ref(null);
 const reportExportState = reactive({
     combined: false,
     static: false,
@@ -2681,6 +2683,21 @@ watch(
 );
 
 watch(
+    () => reportIssueLines.value,
+    () => {
+        focusPendingReportIssue();
+    },
+    { flush: "post" }
+);
+
+watch(
+    () => activeReportTarget.value,
+    () => {
+        focusPendingReportIssue();
+    }
+);
+
+watch(
     () => codeScrollRef.value,
     (next, prev) => {
         if (codeScrollResizeObserver && prev) {
@@ -3390,31 +3407,52 @@ async function handlePreviewIssueSelect(payload) {
         await hydrateReportsForProject(projectId);
     }
 
-    await openProjectFileFromReportTree(projectId, path);
-    activeRailTool.value = "projects";
-    activeReportTarget.value = null;
+    selectReport(projectId, path);
+    activeRailTool.value = "reports";
 
     const issue = payload?.issue || {};
     const startLine = Number(issue.lineStart);
     const endLine = Number(issue.lineEnd ?? issue.lineStart);
 
-    if (Number.isFinite(startLine)) {
-        const safeEnd = Number.isFinite(endLine) ? endLine : startLine;
-        codeSelection.value = {
-            path,
-            name: path,
-            label: path,
-            startLine,
-            endLine: safeEnd,
-            startColumn: 1,
-            endColumn: null,
-            lineCount: Math.max(1, Math.abs(safeEnd - startLine) + 1),
-            text: ""
-        };
-    } else {
-        codeSelection.value = null;
+    pendingReportIssueFocus.value = {
+        projectId,
+        path,
+        lineStart: Number.isFinite(startLine) ? startLine : null,
+        lineEnd: Number.isFinite(endLine) ? endLine : null
+    };
+    await focusPendingReportIssue();
+}
+
+async function focusPendingReportIssue() {
+    const pending = pendingReportIssueFocus.value;
+    if (!pending) return;
+
+    const active = activeReport.value;
+    const activeProjectId = normaliseProjectId(active?.project?.id);
+    if (!active || activeProjectId !== pending.projectId || active.path !== pending.path) {
+        return;
     }
 
+    if (!Number.isFinite(pending.lineStart)) {
+        pendingReportIssueFocus.value = null;
+        return;
+    }
+
+    await nextTick();
+
+    const container = reportIssuesContentRef.value;
+    if (!container) return;
+
+    const targetLine = Math.max(1, Math.floor(pending.lineStart));
+    const lineElement =
+        container.querySelector(`[data-line="${targetLine}"]`) ||
+        container.querySelector(`[data-line="${targetLine + 1}"]`) ||
+        container.querySelector(`[data-line="${targetLine - 1}"]`);
+
+    if (lineElement && typeof lineElement.scrollIntoView === "function") {
+        lineElement.scrollIntoView({ block: "center", behavior: "smooth" });
+        pendingReportIssueFocus.value = null;
+    }
 }
 
 async function openProjectFileFromReportTree(projectId, path) {
@@ -4489,7 +4527,7 @@ onBeforeUnmount(() => {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="reportIssuesContent">
+                                            <div class="reportIssuesContent" ref="reportIssuesContentRef">
                                                 <template v-if="activeReportDetails">
                                                     <div
                                                         v-if="activeReport.state.sourceLoading"
