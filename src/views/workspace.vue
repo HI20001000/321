@@ -44,7 +44,7 @@ import ChatAiWindow from "../components/ChatAiWindow.vue";
 import ProjectPreviewPanel from "../components/projectpreview/ProjectPreviewPanel.vue";
 import SettingsPanel from "../components/setting/SettingsPanel.vue";
 
-const workspaceLogoModules = import.meta.glob("../assets/InfoMacro_logo.jpg", {
+const workspaceLogoModules = import.meta.glob("../imgs/web_icon.png", {
     eager: true,
     import: "default"
 });
@@ -7165,7 +7165,6 @@ body,
 }
 
 </style>
-
 
 
 
