@@ -5,6 +5,7 @@ import { ensureSchema } from "./lib/ensureSchema.js";
 import { getDifyConfigSummary, partitionContent, requestDifyReport } from "./lib/difyClient.js";
 import { analyseSqlToReport, buildSqlReportPayload, isSqlPath } from "./lib/sqlAnalyzer.js";
 import { buildJavaSegments, isJavaPath } from "./lib/javaProcessor.js";
+import { logDbMutation } from "./lib/dbAuditLogger.js";
 
 const REPORT_DEBUG_LOGS = process.env.REPORT_DEBUG_LOGS === "true";
 
@@ -107,6 +108,18 @@ function mapProjectFileRow(row) {
         createdAt: Number(row.created_at) || Date.now(),
         updatedAt: Number(row.updated_at) || Date.now()
     };
+}
+
+function getRequestIp(req) {
+    const forwarded = typeof req.headers["x-forwarded-for"] === "string" ? req.headers["x-forwarded-for"] : "";
+    if (forwarded) {
+        return forwarded.split(",")[0]?.trim() || forwarded;
+    }
+    const realIp = typeof req.headers["x-real-ip"] === "string" ? req.headers["x-real-ip"].trim() : "";
+    if (realIp) {
+        return realIp;
+    }
+    return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 function computeNodeKey(projectId, path) {
@@ -1035,6 +1048,12 @@ app.post("/api/projects", async (req, res, next) => {
              ON DUPLICATE KEY UPDATE name = VALUES(name), mode = VALUES(mode), created_at = VALUES(created_at)`,
             [id, name, mode, createdAtValue]
         );
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "UPSERT",
+            table: "projects",
+            data: [id]
+        });
         res.status(201).json({ id, name, mode, createdAt: createdAtValue });
     } catch (error) {
         next(error);
@@ -1045,6 +1064,12 @@ app.delete("/api/projects/:id", async (req, res, next) => {
     try {
         const { id } = req.params;
         await pool.query("DELETE FROM projects WHERE id = ?", [id]);
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "DELETE",
+            table: "projects",
+            data: [id]
+        });
         res.status(204).end();
     } catch (error) {
         next(error);
@@ -1181,6 +1206,19 @@ app.post("/api/projects/:projectId/nodes", async (req, res, next) => {
         await connection.query("DELETE FROM nodes WHERE project_id = ?", [projectId]);
         await insertNodes(connection, projectId, nodes);
         await connection.commit();
+        const nodeKeys = nodes.map((node) => computeNodeKey(projectId, node?.path || ""));
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "DELETE",
+            table: "nodes",
+            data: [projectId]
+        });
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "UPSERT",
+            table: "nodes",
+            data: nodeKeys
+        });
         res.status(204).end();
     } catch (error) {
         await connection.rollback().catch(() => {});
@@ -1204,6 +1242,19 @@ app.post("/api/projects/:projectId/files", async (req, res, next) => {
         await connection.query("DELETE FROM project_files WHERE project_id = ?", [projectId]);
         await insertProjectFiles(connection, projectId, files);
         await connection.commit();
+        const filePaths = files.map((file) => file?.path || "").filter(Boolean);
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "DELETE",
+            table: "project_files",
+            data: [projectId]
+        });
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "UPSERT",
+            table: "project_files",
+            data: filePaths
+        });
         res.status(204).end();
     } catch (error) {
         await connection.rollback().catch(() => {});
@@ -1313,6 +1364,12 @@ app.post("/api/reports/dify", async (req, res, next) => {
                 staticReportJson: reportPayload.staticReportJson,
                 aiReportJson: reportPayload.aiReportJson
             });
+            void logDbMutation({
+                ip: getRequestIp(req),
+                action: "UPSERT",
+                table: "reports",
+                data: [projectId, path]
+            });
             const savedAtIso = new Date().toISOString();
             res.json({
                 projectId,
@@ -1363,6 +1420,12 @@ app.post("/api/reports/dify", async (req, res, next) => {
             staticReportJson: javaFile ? EMPTY_ISSUES_JSON : undefined,
             aiReportJson: javaSnapshots?.aiReportJson
         });
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "UPSERT",
+            table: "reports",
+            data: [projectId, path]
+        });
         const savedAtIso = new Date().toISOString();
         res.json({
             projectId,
@@ -1399,6 +1462,12 @@ app.post("/api/reports/dify", async (req, res, next) => {
                     combinedReportJson: combinedJson,
                     staticReportJson: EMPTY_ISSUES_JSON,
                     aiReportJson: EMPTY_ISSUES_JSON
+                });
+                void logDbMutation({
+                    ip: getRequestIp(req),
+                    action: "UPSERT",
+                    table: "reports",
+                    data: [projectId, path]
                 });
             } catch (persistError) {
                 console.error("[dify] Failed to persist fallback report", persistError);
@@ -1535,6 +1604,12 @@ app.delete("/api/projects/:projectId/nodes", async (req, res, next) => {
     try {
         const { projectId } = req.params;
         await pool.query("DELETE FROM nodes WHERE project_id = ?", [projectId]);
+        void logDbMutation({
+            ip: getRequestIp(req),
+            action: "DELETE",
+            table: "nodes",
+            data: [projectId]
+        });
         res.status(204).end();
     } catch (error) {
         next(error);
