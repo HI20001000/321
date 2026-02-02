@@ -115,6 +115,10 @@ function getRequestIp(req) {
     if (forwarded) {
         return forwarded.split(",")[0]?.trim() || forwarded;
     }
+    const realIp = typeof req.headers["x-real-ip"] === "string" ? req.headers["x-real-ip"].trim() : "";
+    if (realIp) {
+        return realIp;
+    }
     return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
