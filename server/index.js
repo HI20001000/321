@@ -41,8 +41,9 @@ app.use((req, res, next) => {
     const start = Date.now();
     res.on("finish", () => {
         const duration = Date.now() - start;
+        const ip = getRequestIp(req);
         console.log(
-            `[api] ${req.method} ${req.originalUrl || req.url} -> ${res.statusCode} (${duration}ms)`
+            `[api] ip=${ip} ${req.method} ${req.originalUrl || req.url} -> ${res.statusCode} (${duration}ms)`
         );
     });
     res.on("error", (error) => {
